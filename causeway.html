@@ -1,0 +1,920 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Causeway — AI Root Cause Portal</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<style>
+  :root{
+    --bg:#0B0E14;
+    --panel:#12161F;
+    --raised:#1A2029;
+    --raised-2:#212936;
+    --border:#262E3B;
+    --border-light:#39445570;
+    --text:#F5F7FA;
+    --text-muted:#9FACC0;
+    --text-dim:#68748A;
+    --cyan:#22D3EE;
+    --cyan-dim:#22D3EE22;
+    --violet:#B393F5;
+    --violet-dim:#B393F522;
+    --amber:#FFB84D;
+    --amber-dim:#FFB84D22;
+    --green:#3EE0A0;
+    --green-dim:#3EE0A022;
+    --red:#FF7A85;
+    --red-dim:#FF7A8522;
+    --steel:#6FA8FF;
+    --steel-dim:#6FA8FF22;
+    --radius:12px;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;}
+  body{
+    background:
+      radial-gradient(1100px 500px at 15% -10%, #1a2540 0%, transparent 60%),
+      radial-gradient(900px 500px at 110% 10%, #241a3a 0%, transparent 55%),
+      var(--bg);
+    color:var(--text);
+    font-family:'Inter',ui-sans-serif,system-ui,-apple-system,sans-serif;
+    min-height:100vh;
+    -webkit-font-smoothing:antialiased;
+  }
+  h1,h2,h3,.display{font-family:'Space Grotesk',ui-sans-serif,sans-serif;}
+  ::selection{background:var(--cyan-dim);color:var(--cyan);}
+  a{color:inherit;}
+  button{font-family:inherit;cursor:pointer;}
+  input,select,textarea{font-family:inherit;color:var(--text);}
+  input::placeholder,textarea::placeholder{color:var(--text-dim);}
+
+  /* ---------- header ---------- */
+  .topbar{
+    position:sticky;top:0;z-index:20;
+    display:flex;align-items:center;justify-content:space-between;
+    padding:14px 24px;
+    background:rgba(11,14,20,0.85);
+    backdrop-filter:blur(10px);
+    border-bottom:1px solid var(--border);
+  }
+  .brand{display:flex;align-items:center;gap:10px;}
+  .brand-mark{width:30px;height:30px;flex-shrink:0;}
+  .brand-name{font-family:'Space Grotesk';font-weight:700;font-size:16.5px;letter-spacing:-0.01em;}
+  .brand-tag{font-size:11px;color:var(--text-dim);letter-spacing:0.02em;margin-top:1px;}
+  .save-indicator{font-size:11px;color:var(--text-dim);display:flex;align-items:center;gap:5px;text-transform:uppercase;letter-spacing:0.06em;}
+  .dot{width:6px;height:6px;border-radius:50%;background:var(--green);box-shadow:0 0 6px var(--green);}
+
+  /* ---------- layout ---------- */
+  .wrap{max-width:800px;margin:0 auto;padding:28px 20px 100px;}
+  .page-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;flex-wrap:wrap;gap:10px;}
+  .eyebrow{font-size:11px;text-transform:uppercase;letter-spacing:0.14em;color:var(--cyan);font-weight:600;}
+  .title{font-size:22px;font-weight:700;letter-spacing:-0.01em;margin-top:2px;}
+
+  /* ---------- buttons ---------- */
+  .btn{border:none;border-radius:9px;padding:9px 16px;font-size:13.5px;font-weight:600;display:inline-flex;align-items:center;gap:7px;transition:filter .15s, transform .1s;}
+  .btn:active{transform:scale(0.98);}
+  .btn:disabled{opacity:0.35;cursor:not-allowed;}
+  .btn-primary{background:linear-gradient(135deg,var(--cyan),#4FE0D4);color:#06181C;}
+  .btn-primary:hover:not(:disabled){filter:brightness(1.08);}
+  .btn-ghost{background:var(--raised);color:var(--text-muted);border:1px solid var(--border-light);}
+  .btn-ghost:hover{color:var(--text);border-color:var(--cyan);}
+  .btn-ai{background:var(--violet-dim);color:var(--violet);border:1px solid #B393F555;font-size:12.5px;padding:7px 12px;}
+  .btn-ai:hover:not(:disabled){background:#B393F533;}
+  .btn-text{background:none;border:none;color:var(--text-dim);font-size:12.5px;display:inline-flex;align-items:center;gap:4px;}
+  .btn-text:hover{color:var(--text-muted);}
+  .btn-icon{background:none;border:none;color:var(--text-dim);padding:2px;display:inline-flex;}
+  .btn-icon:hover{color:var(--text);}
+  .btn-success{background:linear-gradient(135deg,var(--green),#5DEBB2);color:#04241A;}
+
+  /* ---------- cards / panels ---------- */
+  .card{background:var(--panel);border:1px solid var(--border);border-radius:var(--radius);padding:16px;}
+  .card-raised{background:var(--raised);border:1px solid var(--border-light);border-radius:10px;padding:12px;}
+
+  /* ---------- form fields ---------- */
+  .field{margin-bottom:16px;}
+  .label{font-size:11.5px;text-transform:uppercase;letter-spacing:0.08em;color:var(--text-muted);font-weight:600;margin-bottom:6px;display:block;}
+  .input,.textarea,.select{
+    width:100%;background:var(--raised);border:1px solid var(--border-light);border-radius:8px;
+    padding:10px 12px;font-size:14px;outline:none;transition:border-color .15s;
+  }
+  .input:focus,.textarea:focus,.select:focus{border-color:var(--cyan);}
+  .textarea{resize:vertical;line-height:1.5;}
+  .grid3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;}
+  @media(max-width:560px){.grid3{grid-template-columns:1fr;}}
+
+  /* ---------- pills / badges ---------- */
+  .pill{font-size:10.5px;font-weight:700;text-transform:uppercase;letter-spacing:0.05em;padding:3px 8px;border-radius:6px;display:inline-flex;align-items:center;gap:4px;}
+  .status-row{display:flex;gap:6px;flex-wrap:wrap;align-items:center;}
+
+  /* ---------- progress rail ---------- */
+  .rail{display:flex;align-items:center;gap:6px;font-size:11px;text-transform:uppercase;letter-spacing:0.08em;color:var(--text-dim);margin:14px 0 18px;}
+  .rail .active{color:var(--cyan);}
+  .rail .sep{opacity:.5;}
+
+  /* ---------- log list ---------- */
+  .log-item{display:flex;align-items:center;gap:12px;text-align:left;width:100%;background:var(--panel);border:1px solid var(--border);border-radius:var(--radius);padding:14px;margin-bottom:8px;transition:border-color .15s, transform .1s;}
+  .log-item:hover{border-color:var(--cyan);transform:translateY(-1px);}
+  .log-item .title2{font-size:14.5px;font-weight:600;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .log-item .sub{font-size:12.5px;color:var(--text-dim);margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .empty-state{text-align:center;padding:56px 20px;color:var(--text-dim);}
+  .empty-state svg{margin-bottom:10px;opacity:0.5;}
+
+  /* ---------- scorecard / fishbone grid ---------- */
+  .fb-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
+  @media(max-width:560px){.fb-grid{grid-template-columns:1fr;}}
+  .fb-cat-title{font-size:11.5px;text-transform:uppercase;letter-spacing:0.07em;color:var(--text-muted);font-weight:700;margin-bottom:8px;}
+  .fb-cause{display:flex;align-items:center;gap:8px;padding:4px 0;font-size:13px;}
+  .fb-cause .txt{flex:1;color:var(--text-muted);}
+  .fb-cause.confirmed .txt{color:var(--text);}
+
+  /* ---------- why steps ---------- */
+  .why-step{display:flex;gap:10px;align-items:flex-start;margin-bottom:12px;}
+  .why-num{width:26px;height:26px;border-radius:50%;background:var(--amber-dim);color:var(--amber);border:1px solid #FFB84D55;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;flex-shrink:0;margin-top:2px;}
+
+  /* ---------- action rows ---------- */
+  .action-row{display:flex;align-items:center;gap:8px;background:var(--panel);border:1px solid var(--border);border-radius:9px;padding:9px 10px;margin-bottom:7px;flex-wrap:wrap;}
+  .action-row .atitle{flex:1;font-size:13.5px;min-width:120px;}
+  .action-row input.mini{background:var(--raised);border:1px solid var(--border-light);border-radius:6px;font-size:12px;padding:5px 7px;color:var(--text);width:90px;}
+
+  /* ---------- AI coach ---------- */
+  .coach-fab{position:fixed;bottom:22px;right:22px;width:52px;height:52px;border-radius:50%;background:linear-gradient(135deg,var(--violet),#8B6FE8);display:flex;align-items:center;justify-content:center;box-shadow:0 6px 24px #B393F555;border:none;z-index:30;}
+  .coach-panel{position:fixed;bottom:22px;right:22px;width:340px;max-width:92vw;height:440px;background:var(--panel);border:1px solid var(--border-light);border-radius:14px;box-shadow:0 20px 60px rgba(0,0,0,0.5);display:flex;flex-direction:column;overflow:hidden;z-index:30;}
+  .coach-head{display:flex;align-items:center;justify-content:space-between;padding:12px 14px;border-bottom:1px solid var(--border);}
+  .coach-body{flex:1;overflow-y:auto;padding:12px 14px;display:flex;flex-direction:column;gap:8px;}
+  .coach-msg{font-size:12.5px;line-height:1.5;border-radius:10px;padding:8px 11px;max-width:85%;}
+  .coach-msg.user{align-self:flex-end;background:var(--cyan-dim);color:var(--text);}
+  .coach-msg.assistant{align-self:flex-start;background:var(--raised);color:var(--text);}
+  .coach-input-row{display:flex;gap:6px;padding:10px;border-top:1px solid var(--border);}
+  .coach-input-row input{flex:1;background:var(--raised);border:1px solid var(--border-light);border-radius:8px;padding:9px 10px;font-size:12.5px;outline:none;}
+  .coach-input-row input:focus{border-color:var(--cyan);}
+
+  /* ---------- misc ---------- */
+  .row-between{display:flex;align-items:center;justify-content:space-between;gap:10px;}
+  .spin{animation:spin 0.8s linear infinite;}
+  @keyframes spin{to{transform:rotate(360deg);}}
+  .fade-in{animation:fadeIn .25s ease;}
+  @keyframes fadeIn{from{opacity:0;transform:translateY(4px);}to{opacity:1;transform:translateY(0);}}
+  .hint{font-size:12px;color:var(--text-dim);line-height:1.5;margin-bottom:12px;}
+
+  /* ---------- export toolbar ---------- */
+  .export-row{display:flex;gap:8px;flex-wrap:wrap;}
+  .btn-export{background:var(--raised);color:var(--text-muted);border:1px solid var(--border-light);font-size:12px;padding:7px 12px;}
+  .btn-export:hover{color:var(--text);border-color:var(--steel);}
+
+  /* ---------- print report (hidden on screen) ---------- */
+  #printArea{display:none;}
+  @media print{
+    body.print-mode > *:not(#printArea){display:none !important;}
+    body.print-mode{background:#fff;color:#111;}
+    #printArea{display:block;padding:0;color:#111;font-family:'Inter',sans-serif;}
+    #printArea h1{font-family:'Space Grotesk',sans-serif;font-size:20px;margin:0 0 4px;}
+    #printArea .pmeta{font-size:11px;color:#555;margin-bottom:16px;}
+    #printArea h2{font-size:13px;text-transform:uppercase;letter-spacing:0.05em;color:#555;border-bottom:1px solid #ccc;padding-bottom:4px;margin:18px 0 8px;}
+    #printArea p{font-size:12.5px;line-height:1.6;margin:0 0 8px;}
+    #printArea table{width:100%;border-collapse:collapse;font-size:11.5px;}
+    #printArea th,#printArea td{border:1px solid #ccc;padding:6px 8px;text-align:left;}
+    #printArea th{background:#f2f2f2;}
+    #printArea .badge{display:inline-block;font-size:10px;text-transform:uppercase;font-weight:700;padding:2px 7px;border:1px solid #999;border-radius:4px;margin-right:6px;}
+  }
+</style>
+</head>
+<body>
+<div class="topbar">
+  <div class="brand">
+    <svg class="brand-mark" viewBox="0 0 32 32" fill="none">
+      <circle cx="8" cy="8" r="3.2" fill="#6FA8FF"/>
+      <circle cx="24" cy="8" r="3.2" fill="#FFB84D"/>
+      <circle cx="8" cy="24" r="3.2" fill="#3EE0A0"/>
+      <circle cx="16" cy="16" r="4.4" fill="#22D3EE"/>
+      <line x1="8" y1="8" x2="16" y2="16" stroke="#39445580" stroke-width="1.6"/>
+      <line x1="24" y1="8" x2="16" y2="16" stroke="#39445580" stroke-width="1.6"/>
+      <line x1="8" y1="24" x2="16" y2="16" stroke="#39445580" stroke-width="1.6"/>
+    </svg>
+    <div>
+      <div class="brand-name">Causeway</div>
+      <div class="brand-tag">AI Root Cause Portal</div>
+    </div>
+  </div>
+  <div id="saveIndicator" class="save-indicator"></div>
+</div>
+
+<div class="wrap" id="root"></div>
+
+<div id="coachMount"></div>
+<div id="printArea"></div>
+
+<script>
+/* =========================================================
+   DATA / STATE
+========================================================= */
+const PILLARS = [
+  { key:"safety", label:"Safety", color:"#FF7A85" },
+  { key:"quality", label:"Quality", color:"#6FA8FF" },
+  { key:"delivery", label:"Delivery", color:"#FFB84D" },
+  { key:"cost", label:"Cost", color:"#3EE0A0" },
+  { key:"people", label:"People", color:"#B393F5" },
+];
+const TIER_NAMES = {1:"Line / Shift",2:"Area",3:"Site",4:"Leadership"};
+const CATEGORIES = [
+  {key:"man",label:"People"},{key:"machine",label:"Machine"},
+  {key:"method",label:"Method"},{key:"material",label:"Material"},
+  {key:"measurement",label:"Measurement"},{key:"environment",label:"Environment"},
+];
+
+const uid = () => Math.random().toString(36).slice(2,10);
+const todayISO = () => new Date().toISOString().slice(0,10);
+const esc = (s="") => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+
+function newRecord(){
+  return {
+    id:uid(), title:"", description:"", pillar:"quality", tier:1, severity:"medium",
+    complexity:null, triageRationale:"", method:null,
+    whys:[{id:uid(), text:""}],
+    fishbone:Object.fromEntries(CATEGORIES.map(c=>[c.key,[]])),
+    rootCause:"", actions:[], status:"draft", createdAt:todayISO(),
+  };
+}
+
+let state = {
+  records: JSON.parse(localStorage.getItem("causeway_records") || "[]"),
+  activeId: null,
+  step: "intake",
+  coachOpen: false,
+  coachMessages: [],
+};
+
+function persist(){
+  localStorage.setItem("causeway_records", JSON.stringify(state.records));
+  const el = document.getElementById("saveIndicator");
+  el.innerHTML = `<span class="dot"></span> Saved`;
+  clearTimeout(persist._t);
+  persist._t = setTimeout(()=>{ el.innerHTML = ""; }, 1400);
+}
+
+function getActive(){ return state.records.find(r=>r.id===state.activeId) || null; }
+function updateActive(patch){
+  const rec = getActive(); if(!rec) return;
+  Object.assign(rec, patch);
+  persist();
+}
+
+/* =========================================================
+   CLAUDE API HELPER
+   NOTE: this fetch target is proxied automatically while this
+   file runs inside a Claude.ai artifact. If you deploy this
+   standalone (your own domain), point ANTHROPIC_PROXY_URL at
+   your own backend that holds your Anthropic API key server-side.
+========================================================= */
+async function askClaude(system, prompt, asJson=false){
+  const res = await fetch("https://api.anthropic.com/v1/messages", {
+    method:"POST",
+    headers:{"Content-Type":"application/json"},
+    body: JSON.stringify({
+      model:"claude-sonnet-4-6",
+      max_tokens:1000,
+      system,
+      messages:[{role:"user", content: prompt}],
+    }),
+  });
+  const data = await res.json();
+  const text = (data.content||[]).filter(b=>b.type==="text").map(b=>b.text).join("\n");
+  if(!asJson) return text.trim();
+  const clean = text.replace(/```json|```/g,"").trim();
+  try{ return JSON.parse(clean); }
+  catch{
+    const m = clean.match(/\{[\s\S]*\}/);
+    if(m) return JSON.parse(m[0]);
+    throw new Error("parse fail");
+  }
+}
+
+/* =========================================================
+   RENDER: ROOT
+========================================================= */
+function render(){
+  const root = document.getElementById("root");
+  const active = getActive();
+  root.innerHTML = active ? renderInvestigation(active) : renderLog();
+  bindGlobalHandlers();
+  if(active) bindStepHandlers(active);
+  renderCoach();
+}
+
+/* ---------- LOG ---------- */
+function renderLog(){
+  const n = state.records.length;
+  const items = state.records.slice().reverse().map(r=>{
+    const p = PILLARS.find(p=>p.key===r.pillar);
+    const statusMap = {
+      draft:["#9FACC0","Draft"], triaged:["#6FA8FF","Triaged"], investigating:["#FFB84D","Investigating"],
+      "root-cause-found":["#B393F5","Root cause found"], "actions-open":["#FFB84D","Actions open"], closed:["#3EE0A0","Closed"],
+    };
+    const [sc,sl] = statusMap[r.status] || statusMap.draft;
+    return `
+      <button class="log-item" data-action="open" data-id="${r.id}">
+        <div style="flex:1;min-width:0;">
+          <div class="status-row" style="margin-bottom:6px;">
+            ${p?`<span class="pill" style="background:${p.color}22;color:${p.color};border:1px solid ${p.color}55">${p.label}</span>`:""}
+            <span class="pill" style="background:${sc}22;color:${sc};border:1px solid ${sc}55">${sl}</span>
+            ${r.method?`<span style="font-size:10.5px;color:var(--text-dim);text-transform:uppercase;letter-spacing:0.05em;">${r.method==='5-why'?'5 Whys':'Fishbone'}</span>`:""}
+          </div>
+          <div class="title2">${esc(r.title)||"Untitled investigation"}</div>
+          ${r.rootCause?`<div class="sub">${esc(r.rootCause)}</div>`:""}
+        </div>
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#68748A" stroke-width="2"><path d="M9 18l6-6-6-6"/></svg>
+      </button>`;
+  }).join("");
+
+  return `
+    <div class="page-head">
+      <div>
+        <div class="eyebrow">Problem Solving</div>
+        <div class="title">Investigations</div>
+      </div>
+      <div class="export-row">
+        ${n>0?`<button class="btn btn-export" data-action="export-excel-all"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M4 4h16v16H4z"/><path d="M4 9h16M9 4v16"/></svg> Export all to Excel</button>`:""}
+        <button class="btn btn-primary" data-action="new">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12h14"/></svg>
+          New investigation
+        </button>
+      </div>
+    </div>
+    <div style="font-size:12.5px;color:var(--text-dim);margin-bottom:14px;">${n} investigation${n!==1?'s':''}</div>
+    ${n===0 ? `
+      <div class="empty-state">
+        <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="#39445580" stroke-width="1.5"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M8 9h8M8 13h5"/></svg>
+        <div>No investigations yet. Start one above.</div>
+      </div>` : items}
+  `;
+}
+
+/* ---------- INVESTIGATION SHELL ---------- */
+function renderInvestigation(rec){
+  const steps = ["intake","triage","analyze","rootcause"];
+  const rail = steps.map((s,i)=>`
+    <span class="${state.step===s?'active':''}">${s==='rootcause'?'Root cause':s.charAt(0).toUpperCase()+s.slice(1)}</span>
+    ${i<3?'<span class="sep">›</span>':''}`).join("");
+
+  let body = "";
+  if(state.step==="intake") body = renderIntake(rec);
+  else if(state.step==="triage") body = renderTriage(rec);
+  else if(state.step==="analyze" && rec.method==="5-why") body = renderFiveWhys(rec);
+  else if(state.step==="analyze" && rec.method==="fishbone") body = renderFishbone(rec);
+  else if(state.step==="rootcause") body = renderRootCause(rec);
+
+  return `
+    <button class="btn-text" data-action="back-to-log" style="margin-bottom:14px;">
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M15 18l-6-6 6-6"/></svg>
+      All investigations
+    </button>
+    <div class="rail">${rail}</div>
+    <div class="fade-in" id="stepBody">${body}</div>
+  `;
+}
+
+/* ---------- INTAKE ---------- */
+function renderIntake(rec){
+  return `
+    <div class="field">
+      <label class="label">Problem title</label>
+      <input class="input" id="f-title" value="${esc(rec.title)}" placeholder="e.g. Line 3 unplanned stops during afternoon shift">
+    </div>
+    <div class="field">
+      <label class="label">What happened? Be specific — what, where, when, how big</label>
+      <textarea class="textarea" id="f-desc" rows="4" placeholder="Describe the problem in your own words. The more specific, the better the AI can help.">${esc(rec.description)}</textarea>
+    </div>
+    <div class="grid3" style="margin-bottom:16px;">
+      <div>
+        <label class="label">Pillar</label>
+        <select class="select" id="f-pillar">${PILLARS.map(p=>`<option value="${p.key}" ${rec.pillar===p.key?'selected':''}>${p.label}</option>`).join("")}</select>
+      </div>
+      <div>
+        <label class="label">Tier</label>
+        <select class="select" id="f-tier">${Object.entries(TIER_NAMES).map(([id,name])=>`<option value="${id}" ${rec.tier==id?'selected':''}>Tier ${id} — ${name}</option>`).join("")}</select>
+      </div>
+      <div>
+        <label class="label">Severity</label>
+        <select class="select" id="f-severity">
+          ${["low","medium","high","critical"].map(v=>`<option value="${v}" ${rec.severity===v?'selected':''}>${v.charAt(0).toUpperCase()+v.slice(1)}</option>`).join("")}
+        </select>
+      </div>
+    </div>
+    <div style="display:flex;justify-content:flex-end;" id="intakeErrRow">
+      <button class="btn btn-primary" data-action="to-triage">
+        Triage with AI
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M9 6l6 6-6 6"/></svg>
+      </button>
+    </div>
+  `;
+}
+
+/* ---------- TRIAGE ---------- */
+function renderTriage(rec){
+  return `
+    <div class="card" style="margin-bottom:14px;">
+      <div style="font-size:14px;font-weight:600;margin-bottom:4px;">${esc(rec.title)}</div>
+      <div style="font-size:12.5px;color:var(--text-dim);line-height:1.5;">${esc(rec.description)}</div>
+    </div>
+    <div id="triageResult">
+      ${rec.complexity ? triageResultHTML(rec) : `<div style="display:flex;align-items:center;gap:8px;color:var(--text-dim);font-size:13px;padding:16px 0;justify-content:center;"><svg class="spin" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#B393F5" stroke-width="2.5"><circle cx="12" cy="12" r="9" stroke-dasharray="40" stroke-dashoffset="10"/></svg> AI is assessing complexity…</div>`}
+    </div>
+    <div style="display:flex;align-items:center;gap:8px;margin:14px 0;flex-wrap:wrap;">
+      <span style="font-size:12px;color:var(--text-dim);">Or choose manually:</span>
+      <button class="btn" data-action="set-method" data-method="5-why" style="font-size:12px;padding:6px 11px;background:${rec.method==='5-why'?'#FFB84D22':'var(--raised)'};color:${rec.method==='5-why'?'#FFB84D':'var(--text-muted)'};border:1px solid ${rec.method==='5-why'?'#FFB84D':'var(--border-light)'};">5 Whys</button>
+      <button class="btn" data-action="set-method" data-method="fishbone" style="font-size:12px;padding:6px 11px;background:${rec.method==='fishbone'?'#FFB84D22':'var(--raised)'};color:${rec.method==='fishbone'?'#FFB84D':'var(--text-muted)'};border:1px solid ${rec.method==='fishbone'?'#FFB84D':'var(--border-light)'};">Fishbone</button>
+    </div>
+    <div class="row-between">
+      <button class="btn-text" data-action="to-intake"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M15 18l-6-6 6-6"/></svg> Back</button>
+      <button class="btn btn-primary" data-action="to-analyze" ${!rec.method?'disabled':''}>Start analysis <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M9 6l6 6-6 6"/></svg></button>
+    </div>
+  `;
+}
+function triageResultHTML(rec){
+  return `
+    <div class="card" style="background:var(--violet-dim);border:1px solid #B393F540;">
+      <div style="display:flex;align-items:center;gap:6px;margin-bottom:8px;">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#B393F5" stroke-width="2.5"><path d="M12 3l1.9 5.8L20 11l-6.1 2.2L12 19l-1.9-5.8L4 11l6.1-2.2z"/></svg>
+        <span style="font-size:11.5px;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;color:#B393F5;">AI recommendation</span>
+      </div>
+      <div style="font-size:14px;margin-bottom:6px;">This looks <strong>${rec.complexity}</strong>. Suggested method: <strong>${rec.method==='5-why'?'5 Whys':'Fishbone (6M) + 5 Whys'}</strong></div>
+      <div style="font-size:12.5px;color:var(--text-muted);line-height:1.5;">${esc(rec.triageRationale)}</div>
+    </div>`;
+}
+
+/* ---------- FIVE WHYS ---------- */
+function renderFiveWhys(rec){
+  const steps = rec.whys.map((w,i)=>`
+    <div class="why-step">
+      <div class="why-num">${i+1}</div>
+      <div style="flex:1;">
+        <textarea class="textarea why-input" data-idx="${i}" rows="2" placeholder="${i===0?"Why did this happen?":"Why did that happen?"}">${esc(w.text)}</textarea>
+        <div style="display:flex;align-items:center;gap:10px;margin-top:6px;">
+          <button class="btn btn-ai" data-action="suggest-why" data-idx="${i}"><span class="ai-icon">${aiIcon()}</span> Suggest</button>
+          ${rec.whys.length>1?`<button class="btn-text" data-action="remove-why" data-idx="${i}" style="color:var(--text-dim);">Remove</button>`:""}
+        </div>
+      </div>
+    </div>`).join("");
+  return `
+    <div class="card" style="margin-bottom:16px;"><div style="font-size:14px;font-weight:600;">${esc(rec.title)}</div></div>
+    <div>${steps}</div>
+    ${rec.whys.length<8?`<button class="btn-text" data-action="add-why" style="margin-bottom:16px;"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12h14"/></svg> Add another why</button>`:""}
+    <div class="row-between">
+      <button class="btn-text" data-action="to-triage-back"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M15 18l-6-6 6-6"/></svg> Back</button>
+      <button class="btn btn-primary" data-action="to-rootcause" ${!rec.whys[rec.whys.length-1].text.trim()?'disabled':''}>Confirm root cause <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M9 6l6 6-6 6"/></svg></button>
+    </div>
+  `;
+}
+
+/* ---------- FISHBONE ---------- */
+function renderFishbone(rec){
+  const cats = CATEGORIES.map(cat=>{
+    const causes = rec.fishbone[cat.key];
+    const causeItems = causes.map(c=>`
+      <div class="fb-cause ${c.confirmed?'confirmed':''}">
+        <button class="btn-icon" data-action="toggle-cause" data-cat="${cat.key}" data-cid="${c.id}">
+          ${c.confirmed ? `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#3EE0A0" stroke-width="2.5"><circle cx="12" cy="12" r="9"/><path d="M8 12l3 3 5-6"/></svg>` : `<span style="display:inline-block;width:14px;height:14px;border-radius:50%;border:1.5px solid #68748A;"></span>`}
+        </button>
+        <span class="txt">${esc(c.text)}</span>
+        <button class="btn-icon" data-action="remove-cause" data-cat="${cat.key}" data-cid="${c.id}"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M18 6L6 18M6 6l12 12"/></svg></button>
+      </div>`).join("");
+    return `
+      <div class="card-raised">
+        <div class="fb-cat-title">${cat.label}</div>
+        ${causes.length===0?`<div style="font-size:12px;color:var(--text-dim);margin-bottom:6px;">No causes yet</div>`:causeItems}
+        <div style="display:flex;gap:6px;margin-top:6px;">
+          <input class="input fb-add-input" data-cat="${cat.key}" placeholder="Add cause…" style="padding:6px 8px;font-size:12px;">
+          <button class="btn-icon" data-action="add-cause" data-cat="${cat.key}"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12h14"/></svg></button>
+        </div>
+      </div>`;
+  }).join("");
+  const confirmedCount = CATEGORIES.reduce((s,c)=>s+rec.fishbone[c.key].filter(x=>x.confirmed).length,0);
+  return `
+    <div class="row-between" style="margin-bottom:6px;">
+      <div style="font-size:14px;font-weight:600;">${esc(rec.title)}</div>
+      <button class="btn btn-ai" data-action="generate-fishbone" id="genFbBtn"><span class="ai-icon">${aiIcon()}</span> Generate candidate causes</button>
+    </div>
+    <div class="hint">Tick the causes that investigation confirms as contributing. Confirmed causes feed the root cause summary.</div>
+    <div class="fb-grid" style="margin-bottom:16px;">${cats}</div>
+    <div class="row-between">
+      <button class="btn-text" data-action="to-triage-back"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M15 18l-6-6 6-6"/></svg> Back</button>
+      <button class="btn btn-primary" data-action="to-rootcause" ${confirmedCount===0?'disabled':''}>Confirm root cause (${confirmedCount} selected) <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M9 6l6 6-6 6"/></svg></button>
+    </div>
+  `;
+}
+
+/* ---------- ROOT CAUSE + ACTIONS ---------- */
+function renderRootCause(rec){
+  const actions = rec.actions.map(a=>`
+    <div class="action-row">
+      <button class="btn-icon" data-action="toggle-action" data-aid="${a.id}">
+        ${a.status==='done'?`<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#3EE0A0" stroke-width="2.5"><circle cx="12" cy="12" r="9"/><path d="M8 12l3 3 5-6"/></svg>`:`<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#9FACC0" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg>`}
+      </button>
+      <span class="atitle" style="${a.status==='done'?'text-decoration:line-through;opacity:0.5;':''}">${esc(a.title)}</span>
+      <input class="mini" data-action="edit-action-owner" data-aid="${a.id}" value="${esc(a.owner)}" placeholder="Owner">
+      <input class="mini" type="date" data-action="edit-action-due" data-aid="${a.id}" value="${a.due}">
+      <button class="btn-icon" data-action="remove-action" data-aid="${a.id}"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M18 6L6 18M6 6l12 12"/></svg></button>
+    </div>`).join("");
+  return `
+    <div class="row-between" style="margin-bottom:14px;">
+      <div style="font-size:14px;font-weight:600;">${esc(rec.title)}</div>
+      <button class="btn btn-ai" data-action="draft-rootcause" id="draftBtn"><span class="ai-icon">${aiIcon()}</span> ${rec.rootCause?'Regenerate':'Draft with AI'}</button>
+    </div>
+    <div class="field">
+      <label class="label">Root cause statement</label>
+      <textarea class="textarea" id="f-rootcause" rows="3" placeholder="The systemic root cause — a missing standard, control, or system, not a symptom or a person.">${esc(rec.rootCause)}</textarea>
+    </div>
+    <div class="field">
+      <label class="label">Corrective actions</label>
+      <div style="margin-top:8px;">${actions}</div>
+      <div style="display:flex;gap:6px;margin-top:8px;">
+        <input class="input" id="newActionInput" placeholder="Add a corrective action…" style="font-size:13.5px;">
+        <button class="btn-icon" data-action="add-action"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12h14"/></svg></button>
+      </div>
+    </div>
+    <div class="export-row" style="margin-bottom:16px;">
+      <button class="btn btn-export" data-action="export-pdf"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M6 2h9l5 5v15H6z"/><path d="M14 2v6h6"/></svg> Export PDF</button>
+      <button class="btn btn-export" data-action="export-excel"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M4 4h16v16H4z"/><path d="M4 9h16M9 4v16"/></svg> Export Excel</button>
+      <button class="btn btn-export" data-action="email-report"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M3 5h18v14H3z"/><path d="M3 6l9 7 9-7"/></svg> Email report</button>
+    </div>
+    <div class="row-between">
+      <button class="btn-text" data-action="to-analyze-back"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M15 18l-6-6 6-6"/></svg> Back</button>
+      <button class="btn btn-success" data-action="finish" ${!rec.rootCause || !rec.rootCause.trim() ? 'disabled':''}>Save investigation <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M20 6L9 17l-5-5"/></svg></button>
+    </div>
+  `;
+}
+
+function aiIcon(){
+  return `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="display:inline;vertical-align:-1px;"><path d="M12 3l1.9 5.8L20 11l-6.1 2.2L12 19l-1.9-5.8L4 11l6.1-2.2z"/></svg>`;
+}
+
+/* =========================================================
+   EVENT HANDLERS
+========================================================= */
+function bindGlobalHandlers(){
+  document.querySelectorAll("[data-action]").forEach(el=>{
+    el.onclick = (e) => handleAction(el.dataset, el, e);
+  });
+}
+
+function handleAction(ds, el){
+  const rec = getActive();
+  switch(ds.action){
+    case "new": {
+      const r = newRecord();
+      state.records.push(r); persist();
+      state.activeId = r.id; state.step = "intake"; render();
+      break;
+    }
+    case "open": {
+      const r = state.records.find(x=>x.id===ds.id);
+      state.activeId = ds.id;
+      if(r.status==="draft") state.step="intake";
+      else if(r.rootCause) state.step="rootcause";
+      else if(r.method) state.step="analyze";
+      else state.step="triage";
+      render();
+      break;
+    }
+    case "back-to-log": state.activeId=null; render(); break;
+    case "to-intake": state.step="intake"; render(); break;
+    case "to-triage": {
+      if(!rec.title.trim() || rec.description.trim().length<15){
+        alert("Add a title and at least a short description (15+ characters) before triaging.");
+        return;
+      }
+      state.step="triage"; render();
+      if(!rec.complexity) runTriage(rec);
+      break;
+    }
+    case "to-triage-back": state.step="triage"; render(); break;
+    case "set-method": updateActive({method:ds.method}); render(); break;
+    case "to-analyze": if(rec.method){ state.step="analyze"; render(); } break;
+    case "to-analyze-back": state.step="analyze"; render(); break;
+    case "add-why": updateActive({whys:[...rec.whys,{id:uid(),text:""}]}); render(); break;
+    case "remove-why": {
+      const idx = Number(ds.idx);
+      updateActive({whys: rec.whys.filter((_,i)=>i!==idx)}); render();
+      break;
+    }
+    case "suggest-why": suggestWhy(rec, Number(ds.idx)); break;
+    case "generate-fishbone": generateFishbone(rec); break;
+    case "toggle-cause": {
+      const cat = ds.cat;
+      const next = {...rec.fishbone, [cat]: rec.fishbone[cat].map(c=>c.id===ds.cid?{...c,confirmed:!c.confirmed}:c)};
+      updateActive({fishbone:next}); render();
+      break;
+    }
+    case "remove-cause": {
+      const cat = ds.cat;
+      const next = {...rec.fishbone, [cat]: rec.fishbone[cat].filter(c=>c.id!==ds.cid)};
+      updateActive({fishbone:next}); render();
+      break;
+    }
+    case "add-cause": {
+      const input = document.querySelector(`.fb-add-input[data-cat="${ds.cat}"]`);
+      const text = input.value.trim();
+      if(!text) return;
+      const next = {...rec.fishbone, [ds.cat]: [...rec.fishbone[ds.cat], {id:uid(),text,confirmed:false}]};
+      updateActive({fishbone:next}); render();
+      break;
+    }
+    case "to-rootcause": state.step="rootcause"; render(); break;
+    case "draft-rootcause": draftRootCause(rec); break;
+    case "toggle-action": {
+      const next = rec.actions.map(a=>a.id===ds.aid?{...a,status:a.status==='open'?'done':'open'}:a);
+      updateActive({actions:next}); render();
+      break;
+    }
+    case "remove-action": {
+      updateActive({actions: rec.actions.filter(a=>a.id!==ds.aid)}); render();
+      break;
+    }
+    case "add-action": {
+      const input = document.getElementById("newActionInput");
+      const title = input.value.trim();
+      if(!title) return;
+      updateActive({actions:[...rec.actions,{id:uid(),title,owner:"",due:todayISO(),status:"open"}]});
+      render();
+      break;
+    }
+    case "finish": {
+      const hasOpen = rec.actions.some(a=>a.status==='open');
+      updateActive({status: hasOpen ? "actions-open" : "root-cause-found"});
+      state.activeId=null; render();
+      break;
+    }
+    case "coach-toggle": state.coachOpen = !state.coachOpen; renderCoach(); break;
+    case "coach-send": sendCoachMessage(); break;
+    case "export-pdf": exportPDF(rec); break;
+    case "export-excel": exportExcelSingle(rec); break;
+    case "export-excel-all": exportExcelAll(); break;
+    case "email-report": emailReport(rec); break;
+  }
+}
+
+/* =========================================================
+   EXPORTS — PDF (print), Excel (SheetJS), Email (mailto)
+========================================================= */
+function evidenceLines(rec){
+  if(rec.method==="5-why"){
+    return rec.whys.map((w,i)=>`Why ${i+1}: ${w.text}`).filter(l=>l.trim()!==`Why ${rec.whys.indexOf(w)+1}: `);
+  }
+  const lines = [];
+  CATEGORIES.forEach(c=>{
+    rec.fishbone[c.key].filter(x=>x.confirmed).forEach(x=> lines.push(`${c.label}: ${x.text}`));
+  });
+  return lines;
+}
+
+function exportPDF(rec){
+  const p = PILLARS.find(p=>p.key===rec.pillar);
+  const evidence = evidenceLines(rec);
+  const actionsRows = rec.actions.map(a=>`
+    <tr><td>${esc(a.title)}</td><td>${esc(a.owner)||'—'}</td><td>${a.due}</td><td>${a.status==='done'?'Done':'Open'}</td></tr>`).join("");
+  document.getElementById("printArea").innerHTML = `
+    <h1>${esc(rec.title)||"Untitled investigation"}</h1>
+    <div class="pmeta">
+      <span class="badge">${p?p.label:rec.pillar}</span>
+      <span class="badge">Tier ${rec.tier} — ${TIER_NAMES[rec.tier]}</span>
+      <span class="badge">${rec.severity}</span>
+      <span class="badge">${rec.method==='5-why'?'5 Whys':'Fishbone'}</span>
+      &nbsp;·&nbsp; Logged ${rec.createdAt}
+    </div>
+    <h2>Problem description</h2>
+    <p>${esc(rec.description)}</p>
+    <h2>Analysis (${rec.method==='5-why'?'5 Whys':'Fishbone — confirmed causes'})</h2>
+    ${evidence.length ? `<p>${evidence.map(esc).join("<br>")}</p>` : `<p>—</p>`}
+    <h2>Root cause</h2>
+    <p>${esc(rec.rootCause)||"—"}</p>
+    <h2>Corrective actions</h2>
+    ${rec.actions.length ? `<table><tr><th>Action</th><th>Owner</th><th>Due</th><th>Status</th></tr>${actionsRows}</table>` : `<p>—</p>`}
+  `;
+  document.body.classList.add("print-mode");
+  window.print();
+}
+window.addEventListener("afterprint", ()=> document.body.classList.remove("print-mode"));
+
+function exportExcelSingle(rec){
+  const p = PILLARS.find(p=>p.key===rec.pillar);
+  const wb = XLSX.utils.book_new();
+  const summary = [
+    ["Title", rec.title], ["Pillar", p?p.label:rec.pillar], ["Tier", `Tier ${rec.tier} — ${TIER_NAMES[rec.tier]}`],
+    ["Severity", rec.severity], ["Method", rec.method], ["Status", rec.status], ["Logged", rec.createdAt],
+    ["Description", rec.description], ["Root cause", rec.rootCause],
+  ];
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(summary), "Summary");
+  const evidence = evidenceLines(rec).map(l=>[l]);
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([["Analysis"], ...evidence]), "Analysis");
+  const actionRows = [["Action","Owner","Due","Status"], ...rec.actions.map(a=>[a.title,a.owner,a.due,a.status])];
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(actionRows), "Actions");
+  XLSX.writeFile(wb, `${(rec.title||"investigation").slice(0,40).replace(/[^\w\- ]/g,"")}.xlsx`);
+}
+
+function exportExcelAll(){
+  const wb = XLSX.utils.book_new();
+  const invRows = [["Title","Pillar","Tier","Severity","Method","Status","Logged","Root cause"]];
+  const actRows = [["Investigation","Action","Owner","Due","Status"]];
+  state.records.forEach(r=>{
+    const p = PILLARS.find(p=>p.key===r.pillar);
+    invRows.push([r.title, p?p.label:r.pillar, `Tier ${r.tier}`, r.severity, r.method||"", r.status, r.createdAt, r.rootCause||""]);
+    r.actions.forEach(a=> actRows.push([r.title, a.title, a.owner, a.due, a.status]));
+  });
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(invRows), "Investigations");
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(actRows), "All Actions");
+  XLSX.writeFile(wb, "causeway-investigations.xlsx");
+}
+
+function emailReport(rec){
+  const evidence = evidenceLines(rec).join("\n");
+  const body = `PROBLEM\n${rec.title}\n${rec.description}\n\nANALYSIS\n${evidence}\n\nROOT CAUSE\n${rec.rootCause}\n\nACTIONS\n${rec.actions.map(a=>`- ${a.title} (${a.owner||'unassigned'}, due ${a.due}, ${a.status})`).join("\n")}`;
+  const url = `mailto:?subject=${encodeURIComponent("RCA Report: "+rec.title)}&body=${encodeURIComponent(body)}`;
+  window.location.href = url;
+}
+
+function bindStepHandlers(rec){
+  const t = document.getElementById("f-title");
+  if(t) t.oninput = () => { rec.title = t.value; persist(); };
+  const d = document.getElementById("f-desc");
+  if(d) d.oninput = () => { rec.description = d.value; persist(); };
+  const p = document.getElementById("f-pillar");
+  if(p) p.onchange = () => { rec.pillar = p.value; persist(); };
+  const ti = document.getElementById("f-tier");
+  if(ti) ti.onchange = () => { rec.tier = Number(ti.value); persist(); };
+  const sv = document.getElementById("f-severity");
+  if(sv) sv.onchange = () => { rec.severity = sv.value; persist(); };
+  const rc = document.getElementById("f-rootcause");
+  if(rc) rc.oninput = () => { rec.rootCause = rc.value; persist(); };
+  document.querySelectorAll(".why-input").forEach(ta=>{
+    ta.oninput = () => { rec.whys[Number(ta.dataset.idx)].text = ta.value; persist(); };
+  });
+  const newActionInput = document.getElementById("newActionInput");
+  if(newActionInput) newActionInput.onkeydown = (e) => { if(e.key==="Enter") handleAction({action:"add-action"}); };
+  document.querySelectorAll('input[data-action="edit-action-owner"]').forEach(inp=>{
+    inp.oninput = () => { const a = rec.actions.find(x=>x.id===inp.dataset.aid); a.owner = inp.value; persist(); };
+  });
+  document.querySelectorAll('input[data-action="edit-action-due"]').forEach(inp=>{
+    inp.onchange = () => { const a = rec.actions.find(x=>x.id===inp.dataset.aid); a.due = inp.value; persist(); };
+  });
+  document.querySelectorAll(".fb-add-input").forEach(inp=>{
+    inp.onkeydown = (e) => { if(e.key==="Enter") handleAction({action:"add-cause", cat:inp.dataset.cat}); };
+  });
+}
+
+/* =========================================================
+   AI ACTIONS
+========================================================= */
+async function runTriage(rec){
+  try{
+    const result = await askClaude(
+      "You are a lean manufacturing continuous-improvement expert who triages problems before root cause analysis. Respond ONLY with JSON, no preamble, no markdown fences. Schema: {\"complexity\":\"simple\"|\"complex\",\"rationale\":\"one or two sentences explaining why\",\"suggestedMethod\":\"5-why\"|\"fishbone\"}. Use 5-why for problems with a likely single, linear causal chain. Use fishbone for problems that could stem from multiple contributing factors (people, machine, method, material, measurement, environment) or that are recurring/systemic.",
+      `Problem title: ${rec.title}\nDescription: ${rec.description}\nPillar: ${rec.pillar}\nSeverity: ${rec.severity}`,
+      true
+    );
+    updateActive({complexity:result.complexity, triageRationale:result.rationale, method:result.suggestedMethod, status:"triaged"});
+  }catch(e){
+    document.getElementById("triageResult").innerHTML = `<div style="font-size:12.5px;color:var(--red);">Couldn't reach the AI — pick a method manually below.</div>`;
+    return;
+  }
+  render();
+}
+
+async function suggestWhy(rec, idx){
+  const btn = document.querySelector(`[data-action="suggest-why"][data-idx="${idx}"]`);
+  const original = btn.innerHTML;
+  btn.innerHTML = `<svg class="spin" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="9" stroke-dasharray="40" stroke-dashoffset="10"/></svg> Thinking…`;
+  btn.disabled = true;
+  try{
+    const chain = rec.whys.slice(0,idx).map((w,i)=>`Why ${i+1}: ${w.text}`).join("\n");
+    const suggestion = await askClaude(
+      "You are facilitating a 5 Whys root cause analysis in a manufacturing plant. Given the problem and the chain of 'why' answers so far, propose the NEXT why answer as a single, specific, plain sentence — the most probable underlying cause at this depth, grounded in typical manufacturing causes (process, equipment, training, standard work, maintenance). Do not add labels or numbering, just the sentence. If the chain already reflects a true systemic root cause (a missing system, standard, or control — not a person or one-off event), instead respond with exactly: ROOT_CAUSE_REACHED.",
+      `Problem: ${rec.title} — ${rec.description}\n\n${chain || "(no whys answered yet)"}`
+    );
+    if(!suggestion.includes("ROOT_CAUSE_REACHED")){
+      rec.whys[idx].text = suggestion; persist();
+    }
+  }catch(e){ /* silent */ }
+  render();
+}
+
+async function generateFishbone(rec){
+  const btn = document.getElementById("genFbBtn");
+  btn.innerHTML = `<svg class="spin" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="9" stroke-dasharray="40" stroke-dashoffset="10"/></svg> Thinking…`;
+  btn.disabled = true;
+  try{
+    const result = await askClaude(
+      "You are a lean six sigma facilitator running a fishbone (Ishikawa) analysis for a manufacturing problem, using the 6M categories: man (people), machine, method, material, measurement, environment. Respond ONLY with JSON, no markdown fences, schema: {\"man\":[\"cause1\",\"cause2\"],\"machine\":[...],\"method\":[...],\"material\":[...],\"measurement\":[...],\"environment\":[...]}. Give 2-4 short, specific, plausible candidate causes per category grounded in the problem described. Keep each cause under 12 words.",
+      `Problem: ${rec.title} — ${rec.description}\nPillar: ${rec.pillar}`,
+      true
+    );
+    const next = {};
+    CATEGORIES.forEach(c=>{
+      next[c.key] = (result[c.key]||[]).map(text=>({id:uid(),text,confirmed:false}));
+    });
+    updateActive({fishbone:next});
+  }catch(e){ /* silent */ }
+  render();
+}
+
+async function draftRootCause(rec){
+  const btn = document.getElementById("draftBtn");
+  btn.innerHTML = `<svg class="spin" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="9" stroke-dasharray="40" stroke-dashoffset="10"/></svg> Thinking…`;
+  btn.disabled = true;
+  try{
+    let evidence = "";
+    if(rec.method==="5-why"){
+      evidence = rec.whys.map((w,i)=>`Why ${i+1}: ${w.text}`).join("\n");
+    }else{
+      evidence = CATEGORIES.map(c=>{
+        const confirmed = rec.fishbone[c.key].filter(x=>x.confirmed).map(x=>x.text);
+        return confirmed.length ? `${c.label}: ${confirmed.join("; ")}` : null;
+      }).filter(Boolean).join("\n");
+    }
+    const result = await askClaude(
+      "You are a lean manufacturing root cause analysis facilitator. Based on the problem and the analysis evidence provided, write a JSON object only, no markdown fences, schema: {\"rootCause\":\"one tight paragraph stating the systemic root cause, not symptoms\",\"actions\":[\"action1\",\"action2\",\"action3\"]}. Root cause should point to a missing or broken standard, control, or system — never blame an individual. Actions should be specific, containment vs permanent-fix distinguished where relevant, each under 18 words.",
+      `Problem: ${rec.title} — ${rec.description}\n\nAnalysis evidence:\n${evidence}`,
+      true
+    );
+    updateActive({
+      rootCause: result.rootCause,
+      actions: [...rec.actions, ...result.actions.map(title=>({id:uid(),title,owner:"",due:todayISO(),status:"open"}))],
+      status: "root-cause-found",
+    });
+  }catch(e){ /* silent */ }
+  render();
+}
+
+/* =========================================================
+   AI COACH
+========================================================= */
+function renderCoach(){
+  const mount = document.getElementById("coachMount");
+  if(!state.coachOpen){
+    mount.innerHTML = `
+      <button class="coach-fab" data-action="coach-toggle">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#0B0E14" stroke-width="2.3"><path d="M21 11.5a8.38 8.38 0 01-.9 3.8 8.5 8.5 0 01-7.6 4.7 8.38 8.38 0 01-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 01-.9-3.8 8.5 8.5 0 014.7-7.6 8.38 8.38 0 013.8-.9h.5a8.48 8.48 0 018 8v.5z"/></svg>
+      </button>`;
+    mount.querySelector("[data-action]").onclick = ()=>handleAction({action:"coach-toggle"});
+    return;
+  }
+  const msgs = state.coachMessages.map(m=>`<div class="coach-msg ${m.role}">${esc(m.text)}</div>`).join("");
+  mount.innerHTML = `
+    <div class="coach-panel">
+      <div class="coach-head">
+        <div style="display:flex;align-items:center;gap:6px;font-size:11.5px;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;color:#B393F5;">
+          ${aiIcon()} RCA Coach
+        </div>
+        <button class="btn-icon" data-action="coach-toggle"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M18 6L6 18M6 6l12 12"/></svg></button>
+      </div>
+      <div class="coach-body" id="coachBody">
+        ${state.coachMessages.length===0 ? `<div style="font-size:12px;color:var(--text-dim);text-align:center;padding:16px 4px;">Ask me anything — "is this a good 5 why chain?", "containment vs permanent action?", "help me word this root cause statement".</div>` : msgs}
+        <div id="coachLoading" style="display:none;"><svg class="spin" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#B393F5" stroke-width="2.5"><circle cx="12" cy="12" r="9" stroke-dasharray="40" stroke-dashoffset="10"/></svg></div>
+      </div>
+      <div class="coach-input-row">
+        <input id="coachInput" placeholder="Ask the coach…">
+        <button class="btn-icon" data-action="coach-send" style="color:#FFB84D;"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3"><path d="M22 2L11 13M22 2l-7 20-4-9-9-4z"/></svg></button>
+      </div>
+    </div>`;
+  mount.querySelectorAll("[data-action]").forEach(el=>{
+    el.onclick = ()=>handleAction(el.dataset);
+  });
+  const input = document.getElementById("coachInput");
+  input.onkeydown = (e)=>{ if(e.key==="Enter") sendCoachMessage(); };
+  input.focus();
+  const body = document.getElementById("coachBody");
+  body.scrollTop = body.scrollHeight;
+}
+
+async function sendCoachMessage(){
+  const input = document.getElementById("coachInput");
+  const text = input.value.trim();
+  if(!text) return;
+  state.coachMessages.push({role:"user", text});
+  input.value = "";
+  renderCoach();
+  document.getElementById("coachLoading").style.display = "block";
+  const rec = getActive();
+  const context = rec && rec.title
+    ? `Current investigation: "${rec.title}" — ${rec.description}. Method: ${rec.method||"not yet chosen"}. Root cause so far: ${rec.rootCause||"none yet"}.`
+    : "No investigation open yet.";
+  try{
+    const reply = await askClaude(
+      `You are an expert lean/six sigma root cause analysis coach embedded in a manufacturing problem-solving tool. Be concise, practical, and specific to shop-floor manufacturing. Keep replies under 120 words unless asked for more detail. ${context}`,
+      text
+    );
+    state.coachMessages.push({role:"assistant", text: reply});
+  }catch(e){
+    state.coachMessages.push({role:"assistant", text:"Couldn't reach the AI just now — try again in a moment."});
+  }
+  renderCoach();
+}
+
+/* =========================================================
+   INIT
+========================================================= */
+render();
+</script>
+</body>
+</html>
