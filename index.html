@@ -4,6 +4,13 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Causeway — AI Root Cause Portal</title>
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#0B0E14">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-180.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Causeway">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
@@ -260,10 +267,11 @@ function newRecord(){
     id:crypto.randomUUID(), title:"", description:"", pillar:"quality", tier:1, severity:"medium",
     location:"", whenOccurred:"", condition:"one-off", costImpact:"unknown",
     complexity:null, triageRationale:"", method:null,
-    whys:[{id:uid(), text:""}],
+    whyChains:[{id:uid(), whys:[{id:uid(), text:""}]}],
     fishbone:Object.fromEntries(CATEGORIES.map(c=>[c.key,[]])),
     candidates:[], attachments:[],
     rootCause:"", actions:[], status:"draft", createdAt:todayISO(),
+    effectivenessCheckDate:"", effectivenessStatus:"not-scheduled", effectivenessNotes:"",
   };
 }
 
@@ -299,10 +307,18 @@ function toDbRow(rec){
     tier: rec.tier, severity: rec.severity, complexity: rec.complexity,
     location: rec.location, when_occurred: rec.whenOccurred, condition: rec.condition, cost_impact: rec.costImpact,
     triage_rationale: rec.triageRationale, method: rec.method,
-    whys: rec.whys, fishbone: rec.fishbone, candidates: rec.candidates, attachments: rec.attachments,
+    whys: rec.whyChains, fishbone: rec.fishbone, candidates: rec.candidates, attachments: rec.attachments,
     root_cause: rec.rootCause, actions: rec.actions, status: rec.status,
+    effectiveness_check_date: rec.effectivenessCheckDate || null,
+    effectiveness_status: rec.effectivenessStatus, effectiveness_notes: rec.effectivenessNotes,
     updated_at: new Date().toISOString(),
   };
+}
+function normalizeWhyChains(rawWhys){
+  if(!rawWhys || !rawWhys.length) return [{id:uid(), whys:[{id:uid(),text:""}]}];
+  // old format: flat array of {id,text} — wrap as a single chain
+  if(!rawWhys[0].whys) return [{id:uid(), whys:rawWhys}];
+  return rawWhys;
 }
 function fromDbRow(row){
   return {
@@ -310,10 +326,12 @@ function fromDbRow(row){
     pillar: row.pillar||"quality", tier: row.tier||1, severity: row.severity||"medium",
     location: row.location||"", whenOccurred: row.when_occurred||"", condition: row.condition||"one-off", costImpact: row.cost_impact||"unknown",
     complexity: row.complexity, triageRationale: row.triage_rationale||"", method: row.method,
-    whys: row.whys && row.whys.length ? row.whys : [{id:uid(),text:""}],
+    whyChains: normalizeWhyChains(row.whys),
     fishbone: row.fishbone && Object.keys(row.fishbone).length ? row.fishbone : Object.fromEntries(CATEGORIES.map(c=>[c.key,[]])),
     candidates: row.candidates||[], attachments: row.attachments||[], rootCause: row.root_cause||"", actions: row.actions||[],
     status: row.status||"draft", createdAt: (row.created_at||"").slice(0,10),
+    effectivenessCheckDate: row.effectiveness_check_date||"", effectivenessStatus: row.effectiveness_status||"not-scheduled",
+    effectivenessNotes: row.effectiveness_notes||"",
   };
 }
 
@@ -538,6 +556,7 @@ function renderDashboard(){
   });
   const awaitingEvidence = state.records.filter(r=> r.candidates && r.candidates.length>0 && r.candidates.every(c=>c.status==='unverified'));
   const awaitingAnalysis = state.records.filter(r=> r.status==='draft' || r.status==='triaged');
+  const effectivenessDue = state.records.filter(r=> r.effectivenessStatus==='monitoring' && r.effectivenessCheckDate && r.effectivenessCheckDate<=today);
 
   const statCard = (label,val,color) => `
     <div class="mock-kpi" style="flex:1;">
@@ -575,6 +594,7 @@ function renderDashboard(){
   const clockIcon = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg>`;
   const flaskIcon = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3"><path d="M9 3h6M10 3v6l-5.5 9.5A1 1 0 005.4 20h13.2a1 1 0 00.9-1.5L14 9V3"/></svg>`;
   const editIcon = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3"><path d="M12 20h9M16.5 3.5a2.1 2.1 0 013 3L7 19l-4 1 1-4z"/></svg>`;
+  const checkIcon = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3"><path d="M9 12l2 2 4-4"/><circle cx="12" cy="12" r="9"/></svg>`;
 
   return `
     <div class="card" style="margin-bottom:16px;">
@@ -600,11 +620,13 @@ function renderDashboard(){
         </div>
       </div>
 
-      ${(overdueActions.length || awaitingEvidence.length || awaitingAnalysis.length) ? `
+      ${(overdueActions.length || awaitingEvidence.length || awaitingAnalysis.length || effectivenessDue.length) ? `
         <div style="font-size:11.5px;text-transform:uppercase;letter-spacing:0.06em;color:var(--red);font-weight:700;margin-bottom:10px;display:flex;align-items:center;gap:6px;">
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="9"/><path d="M12 8v4M12 16h.01"/></svg>
           Needs attention
         </div>
+        ${attentionRow(checkIcon, "#3EE0A0", "Effectiveness checks due", effectivenessDue, r=>`
+          <button class="btn-text" data-action="open" data-id="${r.id}" style="justify-content:flex-start;text-align:left;color:var(--text-muted);">${esc(r.title)||"Untitled"} <span style="color:var(--text-dim);">— due ${r.effectivenessCheckDate}</span></button>`)}
         ${attentionRow(clockIcon, "#FF7A85", "Overdue actions", overdueActions, o=>`
           <button class="btn-text" data-action="open" data-id="${o.rec.id}" style="justify-content:flex-start;text-align:left;color:var(--text-muted);">${esc(o.action.title)} <span style="color:var(--text-dim);">— ${esc(o.rec.title)||"Untitled"} (due ${o.action.due})</span></button>`)}
         ${attentionRow(flaskIcon, "#FFB84D", "Awaiting evidence / verification", awaitingEvidence, r=>`
@@ -851,24 +873,39 @@ function triageResultHTML(rec){
 
 /* ---------- FIVE WHYS ---------- */
 function renderFiveWhys(rec){
-  const steps = rec.whys.map((w,i)=>`
+  const chains = rec.whyChains.map((chain, ci)=>{
+    const steps = chain.whys.map((w,i)=>`
     <div class="why-step">
       <div class="why-num">${i+1}</div>
       <div style="flex:1;">
-        <textarea class="textarea why-input" data-idx="${i}" rows="2" placeholder="${i===0?"Why did this happen?":"Why did that happen?"}">${esc(w.text)}</textarea>
+        <textarea class="textarea why-input" data-chain="${ci}" data-idx="${i}" rows="2" placeholder="${i===0?"Why did this happen?":"Why did that happen?"}">${esc(w.text)}</textarea>
         <div style="display:flex;align-items:center;gap:10px;margin-top:6px;">
-          <button class="btn btn-ai" data-action="suggest-why" data-idx="${i}"><span class="ai-icon">${aiIcon()}</span> Suggest</button>
-          ${rec.whys.length>1?`<button class="btn-text" data-action="remove-why" data-idx="${i}" style="color:var(--text-dim);">Remove</button>`:""}
+          <button class="btn btn-ai" data-action="suggest-why" data-chain="${ci}" data-idx="${i}"><span class="ai-icon">${aiIcon()}</span> Suggest</button>
+          ${chain.whys.length>1?`<button class="btn-text" data-action="remove-why" data-chain="${ci}" data-idx="${i}" style="color:var(--text-dim);">Remove</button>`:""}
         </div>
       </div>
     </div>`).join("");
+    return `
+    <div class="card-raised" style="margin-bottom:14px;">
+      <div class="row-between" style="margin-bottom:10px;">
+        <span style="font-size:11.5px;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;color:var(--amber);">Chain ${ci+1}${ci===0?"":" — separate contributing factor"}</span>
+        ${rec.whyChains.length>1?`<button class="btn-icon" data-action="remove-why-chain" data-chain="${ci}" title="Remove this chain"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3"><path d="M18 6L6 18M6 6l12 12"/></svg></button>`:""}
+      </div>
+      ${steps}
+      ${chain.whys.length<8?`<button class="btn-text" data-action="add-why" data-chain="${ci}"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12h14"/></svg> Add another why</button>`:""}
+    </div>`;
+  }).join("");
+
+  const anyChainReady = rec.whyChains.some(c=>c.whys[c.whys.length-1].text.trim());
+
   return `
     <div class="card" style="margin-bottom:16px;"><div style="font-size:14px;font-weight:600;">${esc(rec.title)}</div></div>
-    <div>${steps}</div>
-    ${rec.whys.length<8?`<button class="btn-text" data-action="add-why" style="margin-bottom:16px;"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12h14"/></svg> Add another why</button>`:""}
+    <div class="hint">Most problems have one causal chain. If the evidence points to more than one independent contributing factor, add a separate chain for each rather than merging them.</div>
+    <div>${chains}</div>
+    <button class="btn-text" data-action="add-why-chain" style="margin-bottom:16px;"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12h14"/></svg> Add a separate why chain</button>
     <div class="row-between">
       <button class="btn-text" data-action="to-triage-back"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M15 18l-6-6 6-6"/></svg> Back</button>
-      <button class="btn btn-primary" data-action="to-validate" ${!rec.whys[rec.whys.length-1].text.trim()?'disabled':''}>Verify this cause <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M9 6l6 6-6 6"/></svg></button>
+      <button class="btn btn-primary" data-action="to-validate" ${!anyChainReady?'disabled':''}>Verify these causes <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M9 6l6 6-6 6"/></svg></button>
     </div>
   `;
 }
@@ -977,6 +1014,7 @@ function renderRootCause(rec){
       </div>
     </div>
     ${renderAttachments(rec)}
+    ${renderEffectivenessCheck(rec)}
     <div class="export-row" style="margin-bottom:16px;">
       <button class="btn btn-export" data-action="export-pdf"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M6 2h9l5 5v15H6z"/><path d="M14 2v6h6"/></svg> Export PDF</button>
       <button class="btn btn-export" data-action="export-excel"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M4 4h16v16H4z"/><path d="M4 9h16M9 4v16"/></svg> Export Excel</button>
@@ -987,6 +1025,58 @@ function renderRootCause(rec){
       <button class="btn btn-success" data-action="finish" ${!rec.rootCause || !rec.rootCause.trim() ? 'disabled':''}>Save investigation <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M20 6L9 17l-5-5"/></svg></button>
     </div>
   `;
+}
+
+/* ---------- EFFECTIVENESS CHECK ---------- */
+function defaultCheckDate(){
+  const d = new Date();
+  d.setDate(d.getDate() + 30);
+  return d.toISOString().slice(0,10);
+}
+function renderEffectivenessCheck(rec){
+  const st = rec.effectivenessStatus || "not-scheduled";
+  const today = todayISO();
+  const badgeMap = {
+    "not-scheduled": ["#9FACC0","Not scheduled"],
+    "monitoring": ["#FFB84D","Monitoring"],
+    "confirmed-effective": ["#3EE0A0","Confirmed effective"],
+    "recurred": ["#FF7A85","Recurred"],
+  };
+  const [bc,bl] = badgeMap[st];
+  const dueNow = st==="monitoring" && rec.effectivenessCheckDate && rec.effectivenessCheckDate<=today;
+
+  let body = "";
+  if(st==="not-scheduled"){
+    body = `
+      <div class="hint" style="margin:0 0 10px;">A fix isn't proven until you check the problem hasn't come back. Schedule a follow-up date to confirm.</div>
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+        <input class="input" type="date" id="eff-date" value="${defaultCheckDate()}" style="max-width:180px;">
+        <button class="btn btn-primary" style="font-size:12.5px;padding:8px 14px;" data-action="schedule-effectiveness">Schedule check</button>
+      </div>`;
+  } else if(st==="monitoring"){
+    body = dueNow ? `
+      <div style="font-size:13px;color:var(--text);margin-bottom:10px;">Check date reached (${rec.effectivenessCheckDate}). Has this problem recurred?</div>
+      <textarea class="textarea" id="eff-notes" rows="2" placeholder="Notes on what you observed…" style="margin-bottom:10px;">${esc(rec.effectivenessNotes)}</textarea>
+      <div style="display:flex;gap:8px;">
+        <button class="btn" style="font-size:12.5px;padding:8px 14px;background:var(--green-dim);color:var(--green);border:1px solid #3EE0A055;" data-action="confirm-effective">No — fix held</button>
+        <button class="btn" style="font-size:12.5px;padding:8px 14px;background:var(--red-dim);color:var(--red);border:1px solid #FF7A8555;" data-action="confirm-recurred">Yes — it recurred</button>
+      </div>` : `
+      <div style="font-size:13px;color:var(--text-muted);">Scheduled for <strong style="color:var(--text);">${rec.effectivenessCheckDate}</strong> — will prompt for confirmation once that date arrives.</div>`;
+  } else {
+    body = `
+      <div style="font-size:13px;color:var(--text-muted);margin-bottom:${rec.effectivenessNotes?'6px':'0'};">Checked ${rec.effectivenessCheckDate} — ${st==='confirmed-effective'?'fix confirmed effective.':'problem recurred, investigation may need reopening.'}</div>
+      ${rec.effectivenessNotes ? `<div style="font-size:12.5px;color:var(--text-dim);">${esc(rec.effectivenessNotes)}</div>` : ""}`;
+  }
+
+  return `
+    <div class="card-raised" style="margin-bottom:16px;">
+      <div class="status-row" style="margin-bottom:10px;">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="${bc}" stroke-width="2.3"><path d="M9 12l2 2 4-4"/><circle cx="12" cy="12" r="9"/></svg>
+        <span style="font-size:13px;font-weight:600;">Effectiveness check</span>
+        <span class="pill" style="background:${bc}22;color:${bc};border:1px solid ${bc}55;">${bl}</span>
+      </div>
+      ${body}
+    </div>`;
 }
 
 /* ---------- EVIDENCE ATTACHMENTS (photo / video) ---------- */
@@ -1086,6 +1176,24 @@ function handleAction(ds, el){
   const rec = getActive();
   switch(ds.action){
     case "analyze-patterns": analyzePatterns(); break;
+    case "schedule-effectiveness": {
+      const dateInput = document.getElementById("eff-date");
+      updateActive({ effectivenessCheckDate: dateInput.value, effectivenessStatus: "monitoring" });
+      render();
+      break;
+    }
+    case "confirm-effective": {
+      const notes = document.getElementById("eff-notes");
+      updateActive({ effectivenessStatus: "confirmed-effective", effectivenessNotes: notes ? notes.value : "" });
+      render();
+      break;
+    }
+    case "confirm-recurred": {
+      const notes = document.getElementById("eff-notes");
+      updateActive({ effectivenessStatus: "recurred", effectivenessNotes: notes ? notes.value : "" });
+      render();
+      break;
+    }
     case "delete-attachment": {
       if(confirm("Remove this evidence file?")) deleteAttachment(rec, ds.path);
       break;
@@ -1128,13 +1236,30 @@ function handleAction(ds, el){
     case "set-method": updateActive({method:ds.method}); render(); break;
     case "to-analyze": if(rec.method){ state.step="analyze"; render(); } break;
     case "to-analyze-back": state.step="analyze"; render(); break;
-    case "add-why": updateActive({whys:[...rec.whys,{id:uid(),text:""}]}); render(); break;
-    case "remove-why": {
-      const idx = Number(ds.idx);
-      updateActive({whys: rec.whys.filter((_,i)=>i!==idx)}); render();
+    case "add-why": {
+      const ci = Number(ds.chain);
+      const chains = rec.whyChains.map((c,i)=>i===ci?{...c, whys:[...c.whys,{id:uid(),text:""}]}:c);
+      updateActive({whyChains:chains}); render();
       break;
     }
-    case "suggest-why": suggestWhy(rec, Number(ds.idx)); break;
+    case "remove-why": {
+      const ci = Number(ds.chain), idx = Number(ds.idx);
+      const chains = rec.whyChains.map((c,i)=>i===ci?{...c, whys:c.whys.filter((_,wi)=>wi!==idx)}:c);
+      updateActive({whyChains:chains}); render();
+      break;
+    }
+    case "add-why-chain": {
+      const chains = [...rec.whyChains, {id:uid(), whys:[{id:uid(),text:""}]}];
+      updateActive({whyChains:chains}); render();
+      break;
+    }
+    case "remove-why-chain": {
+      const ci = Number(ds.chain);
+      const chains = rec.whyChains.filter((_,i)=>i!==ci);
+      updateActive({whyChains:chains}); render();
+      break;
+    }
+    case "suggest-why": suggestWhy(rec, Number(ds.chain), Number(ds.idx)); break;
     case "generate-fishbone": generateFishbone(rec); break;
     case "toggle-cause": {
       const cat = ds.cat;
@@ -1162,8 +1287,12 @@ function handleAction(ds, el){
       let candidates = rec.candidates;
       if(!candidates || candidates.length===0){
         if(rec.method==="5-why"){
-          const last = rec.whys[rec.whys.length-1];
-          candidates = [{id:uid(), text:last.text, source:"5 Whys — deepest why", evidence:"", status:"unverified"}];
+          candidates = rec.whyChains
+            .filter(c=>c.whys[c.whys.length-1].text.trim())
+            .map((c,ci)=>{
+              const last = c.whys[c.whys.length-1];
+              return {id:uid(), text:last.text, source: rec.whyChains.length>1 ? `5 Whys — Chain ${ci+1}` : "5 Whys — deepest why", evidence:"", status:"unverified"};
+            });
         }else{
           candidates = [];
           CATEGORIES.forEach(c=>{
@@ -1233,7 +1362,12 @@ function handleAction(ds, el){
 ========================================================= */
 function evidenceLines(rec){
   if(rec.method==="5-why"){
-    return rec.whys.map((w,i)=>`Why ${i+1}: ${w.text}`).filter(l=>l.trim()!==`Why ${rec.whys.indexOf(w)+1}: `);
+    const lines = [];
+    rec.whyChains.forEach((chain,ci)=>{
+      if(rec.whyChains.length>1) lines.push(`— Chain ${ci+1} —`);
+      chain.whys.forEach((w,i)=>{ if(w.text.trim()) lines.push(`Why ${i+1}: ${w.text}`); });
+    });
+    return lines;
   }
   const lines = [];
   CATEGORIES.forEach(c=>{
@@ -1335,7 +1469,7 @@ function bindStepHandlers(rec){
   const rc = document.getElementById("f-rootcause");
   if(rc) rc.oninput = () => { rec.rootCause = rc.value; persist(); };
   document.querySelectorAll(".why-input").forEach(ta=>{
-    ta.oninput = () => { rec.whys[Number(ta.dataset.idx)].text = ta.value; persist(); };
+    ta.oninput = () => { rec.whyChains[Number(ta.dataset.chain)].whys[Number(ta.dataset.idx)].text = ta.value; persist(); };
   });
   const newActionInput = document.getElementById("newActionInput");
   if(newActionInput) newActionInput.onkeydown = (e) => { if(e.key==="Enter") handleAction({action:"add-action"}); };
@@ -1392,19 +1526,20 @@ async function runTriage(rec){
   render();
 }
 
-async function suggestWhy(rec, idx){
-  const btn = document.querySelector(`[data-action="suggest-why"][data-idx="${idx}"]`);
+async function suggestWhy(rec, chainIdx, idx){
+  const btn = document.querySelector(`[data-action="suggest-why"][data-chain="${chainIdx}"][data-idx="${idx}"]`);
   const original = btn.innerHTML;
   btn.innerHTML = `<svg class="spin" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="9" stroke-dasharray="40" stroke-dashoffset="10"/></svg> Thinking…`;
   btn.disabled = true;
   try{
-    const chain = rec.whys.slice(0,idx).map((w,i)=>`Why ${i+1}: ${w.text}`).join("\n");
+    const whys = rec.whyChains[chainIdx].whys;
+    const chainText = whys.slice(0,idx).map((w,i)=>`Why ${i+1}: ${w.text}`).join("\n");
     const suggestion = await askClaude(
       "You are facilitating a 5 Whys root cause analysis in a manufacturing plant. Given the problem and the chain of 'why' answers so far, propose the NEXT why answer as a single, specific, plain sentence — the most probable underlying cause at this depth, grounded in typical manufacturing causes (process, equipment, training, standard work, maintenance). Do not add labels or numbering, just the sentence. If the chain already reflects a true systemic root cause (a missing system, standard, or control — not a person or one-off event), instead respond with exactly: ROOT_CAUSE_REACHED.",
-      `${buildContext(rec)}\n\n${chain || "(no whys answered yet)"}`
+      `${buildContext(rec)}\n\n${chainText || "(no whys answered yet)"}`
     );
     if(!suggestion.includes("ROOT_CAUSE_REACHED")){
-      rec.whys[idx].text = suggestion; persist();
+      rec.whyChains[chainIdx].whys[idx].text = suggestion; persist();
     }
   }catch(e){ /* silent */ }
   render();
@@ -1552,6 +1687,12 @@ sb.auth.onAuthStateChange((event, session)=>{
     render();
   }
 });
+
+if("serviceWorker" in navigator){
+  window.addEventListener("load", ()=>{
+    navigator.serviceWorker.register("sw.js").catch(()=>{});
+  });
+}
 </script>
 </body>
 </html>
