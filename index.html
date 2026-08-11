@@ -268,10 +268,15 @@ function updateActive(patch){
    standalone (your own domain), point ANTHROPIC_PROXY_URL at
    your own backend that holds your Anthropic API key server-side.
 ========================================================= */
+// ---- Proxy config: fill these in after deploying the Cloudflare Worker ----
+// See causeway-proxy-worker.js for setup steps.
+const PROXY_URL = "https://causeway-proxy-worker.singhsamar901.workers.dev";
+const PROXY_SECRET = "Zorav@12$";
+
 async function askClaude(system, prompt, asJson=false){
-  const res = await fetch("https://api.anthropic.com/v1/messages", {
+  const res = await fetch(PROXY_URL, {
     method:"POST",
-    headers:{"Content-Type":"application/json"},
+    headers:{"Content-Type":"application/json", "x-proxy-secret": PROXY_SECRET},
     body: JSON.stringify({
       model:"claude-sonnet-4-6",
       max_tokens:1000,
