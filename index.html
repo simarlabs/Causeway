@@ -7,6 +7,8 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <style>
   :root{
     --bg:#0B0E14;
@@ -159,6 +161,28 @@
   @keyframes fadeIn{from{opacity:0;transform:translateY(4px);}to{opacity:1;transform:translateY(0);}}
   .hint{font-size:12px;color:var(--text-dim);line-height:1.5;margin-bottom:12px;}
 
+  /* ---------- auth ---------- */
+  .auth-wrap{min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px;}
+  .auth-card{width:100%;max-width:360px;background:var(--panel);border:1px solid var(--border);border-radius:16px;padding:28px;}
+  .auth-tabs{display:flex;gap:4px;background:var(--raised);border-radius:9px;padding:3px;margin-bottom:20px;}
+  .auth-tab{flex:1;text-align:center;padding:8px;border-radius:7px;font-size:13px;font-weight:600;color:var(--text-dim);}
+  .auth-tab.active{background:var(--panel);color:var(--text);}
+  .auth-error{background:#FF7A8522;border:1px solid #FF7A8555;color:#FF7A85;font-size:12.5px;padding:9px 12px;border-radius:8px;margin-bottom:14px;}
+  .account-menu{position:relative;}
+  .account-pop{position:absolute;top:34px;right:0;background:var(--panel);border:1px solid var(--border-light);border-radius:10px;padding:10px;min-width:200px;box-shadow:0 12px 40px rgba(0,0,0,0.5);z-index:40;}
+  .plan-badge{font-size:10.5px;font-weight:700;text-transform:uppercase;padding:2px 8px;border-radius:6px;background:var(--cyan-dim);color:var(--cyan);}
+  .upgrade-card{background:var(--panel);border:1px solid var(--border);border-radius:14px;padding:24px;text-align:center;margin-bottom:16px;}
+  @media(max-width:640px){ .dash-charts{grid-template-columns:1fr !important;} }
+
+  /* ---------- attachments ---------- */
+  .attach-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(96px,1fr));gap:8px;margin-top:10px;}
+  .attach-tile{position:relative;aspect-ratio:1;border-radius:9px;overflow:hidden;background:var(--raised);border:1px solid var(--border-light);}
+  .attach-tile img,.attach-tile video{width:100%;height:100%;object-fit:cover;display:block;}
+  .attach-tile .attach-del{position:absolute;top:4px;right:4px;background:rgba(0,0,0,0.6);border-radius:6px;padding:3px;color:#fff;border:none;}
+  .attach-tile .attach-label{position:absolute;bottom:0;left:0;right:0;background:linear-gradient(transparent,rgba(0,0,0,0.75));color:#fff;font-size:10px;padding:4px 6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .attach-upload-btn{display:flex;flex-direction:column;align-items:center;justify-content:center;aspect-ratio:1;border-radius:9px;border:1.5px dashed var(--border-light);color:var(--text-dim);font-size:11px;gap:4px;background:none;cursor:pointer;}
+  .attach-upload-btn:hover{border-color:var(--cyan);color:var(--cyan);}
+
   /* ---------- export toolbar ---------- */
   .export-row{display:flex;gap:8px;flex-wrap:wrap;}
   .btn-export{background:var(--raised);color:var(--text-muted);border:1px solid var(--border-light);font-size:12px;padding:7px 12px;}
@@ -198,7 +222,10 @@
       <div class="brand-tag">AI Root Cause Portal</div>
     </div>
   </div>
-  <div id="saveIndicator" class="save-indicator"></div>
+  <div style="display:flex;align-items:center;gap:10px;">
+    <div id="saveIndicator" class="save-indicator"></div>
+    <div id="accountMount"></div>
+  </div>
 </div>
 
 <div class="wrap" id="root"></div>
@@ -230,28 +257,102 @@ const esc = (s="") => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;
 
 function newRecord(){
   return {
-    id:uid(), title:"", description:"", pillar:"quality", tier:1, severity:"medium",
+    id:crypto.randomUUID(), title:"", description:"", pillar:"quality", tier:1, severity:"medium",
+    location:"", whenOccurred:"", condition:"one-off", costImpact:"unknown",
     complexity:null, triageRationale:"", method:null,
     whys:[{id:uid(), text:""}],
     fishbone:Object.fromEntries(CATEGORIES.map(c=>[c.key,[]])),
+    candidates:[], attachments:[],
     rootCause:"", actions:[], status:"draft", createdAt:todayISO(),
   };
 }
 
+// ---- Supabase config ----
+const SUPABASE_URL = "https://randscdfqpnjeokzabvk.supabase.co";
+const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJhbmRzY2RmcXBuamVva3phYnZrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODY0NDIyNjMsImV4cCI6MjEwMjAxODI2M30.koKZqXgBOhiQ84_r_etmtXW51LnCDlYPwrIS2vRFBIw";
+const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+const FREE_LIMIT = 3;
+
 let state = {
-  records: JSON.parse(localStorage.getItem("causeway_records") || "[]"),
+  session: null,
+  plan: "free",
+  records: [],
   activeId: null,
   step: "intake",
   coachOpen: false,
   coachMessages: [],
+  accountOpen: false,
+  authMode: "login", // login | signup
+  authError: "",
+  authLoading: false,
+  patternInsight: null,
+  signedUrlCache: {},
+  uploadingAttachment: false,
 };
 
+/* ---- DB <-> app record mapping ---- */
+function toDbRow(rec){
+  return {
+    id: rec.id,
+    user_id: state.session.user.id,
+    title: rec.title, description: rec.description, pillar: rec.pillar,
+    tier: rec.tier, severity: rec.severity, complexity: rec.complexity,
+    location: rec.location, when_occurred: rec.whenOccurred, condition: rec.condition, cost_impact: rec.costImpact,
+    triage_rationale: rec.triageRationale, method: rec.method,
+    whys: rec.whys, fishbone: rec.fishbone, candidates: rec.candidates, attachments: rec.attachments,
+    root_cause: rec.rootCause, actions: rec.actions, status: rec.status,
+    updated_at: new Date().toISOString(),
+  };
+}
+function fromDbRow(row){
+  return {
+    id: row.id, title: row.title||"", description: row.description||"",
+    pillar: row.pillar||"quality", tier: row.tier||1, severity: row.severity||"medium",
+    location: row.location||"", whenOccurred: row.when_occurred||"", condition: row.condition||"one-off", costImpact: row.cost_impact||"unknown",
+    complexity: row.complexity, triageRationale: row.triage_rationale||"", method: row.method,
+    whys: row.whys && row.whys.length ? row.whys : [{id:uid(),text:""}],
+    fishbone: row.fishbone && Object.keys(row.fishbone).length ? row.fishbone : Object.fromEntries(CATEGORIES.map(c=>[c.key,[]])),
+    candidates: row.candidates||[], attachments: row.attachments||[], rootCause: row.root_cause||"", actions: row.actions||[],
+    status: row.status||"draft", createdAt: (row.created_at||"").slice(0,10),
+  };
+}
+
+/* Builds the consistent problem-context string used in every AI prompt */
+function buildContext(rec){
+  const condLabel = rec.condition==="ongoing" ? "Ongoing / recurring" : "One-off";
+  const costLabel = {none:"None",low:"Low",medium:"Medium",high:"High",unknown:"Not estimated"}[rec.costImpact] || rec.costImpact;
+  return `Title: ${rec.title}
+What happened: ${rec.description}
+Where: ${rec.location || "not specified"}
+When: ${rec.whenOccurred || "not specified"}
+Condition: ${condLabel}
+Cost impact: ${costLabel}
+Pillar: ${rec.pillar} | Severity: ${rec.severity}`;
+}
+
+async function loadRecords(){
+  const { data, error } = await sb.from("investigations").select("*").order("created_at",{ascending:false});
+  if(!error && data) state.records = data.map(fromDbRow);
+}
+
+async function loadPlan(){
+  const { data } = await sb.from("subscriptions").select("plan").eq("user_id", state.session.user.id).single();
+  if(data) state.plan = data.plan;
+}
+
 function persist(){
-  localStorage.setItem("causeway_records", JSON.stringify(state.records));
   const el = document.getElementById("saveIndicator");
-  el.innerHTML = `<span class="dot"></span> Saved`;
-  clearTimeout(persist._t);
-  persist._t = setTimeout(()=>{ el.innerHTML = ""; }, 1400);
+  if(el){
+    el.innerHTML = `<span class="dot"></span> Saving…`;
+  }
+  const rec = getActive();
+  if(rec){
+    sb.from("investigations").upsert(toDbRow(rec)).then(({error})=>{
+      if(el) el.innerHTML = error ? `<span style="color:#FF7A85;">Save failed</span>` : `<span class="dot"></span> Saved`;
+      clearTimeout(persist._t);
+      persist._t = setTimeout(()=>{ if(el) el.innerHTML=""; }, 1400);
+    });
+  }
 }
 
 function getActive(){ return state.records.find(r=>r.id===state.activeId) || null; }
@@ -301,14 +402,282 @@ async function askClaude(system, prompt, asJson=false){
 ========================================================= */
 function render(){
   const root = document.getElementById("root");
+  if(!state.session){
+    root.innerHTML = renderAuth();
+    bindAuthHandlers();
+    document.getElementById("saveIndicator").innerHTML = "";
+    return;
+  }
+  if(state.step==="paywall" && !state.activeId){
+    root.innerHTML = renderPaywall();
+    bindGlobalHandlers();
+    renderAccountMenu();
+    return;
+  }
   const active = getActive();
   root.innerHTML = active ? renderInvestigation(active) : renderLog();
+  if(!active) drawDashboardCharts();
   bindGlobalHandlers();
   if(active) bindStepHandlers(active);
   renderCoach();
+  renderAccountMenu();
+}
+
+/* ---------- AUTH ---------- */
+function renderAuth(){
+  const isLogin = state.authMode==="login";
+  return `
+  <div class="auth-wrap">
+    <div class="auth-card">
+      <div style="text-align:center;margin-bottom:20px;">
+        <div style="font-family:'Space Grotesk';font-weight:700;font-size:19px;">Causeway</div>
+        <div style="font-size:12px;color:var(--text-dim);">AI Root Cause Portal</div>
+      </div>
+      <div class="auth-tabs">
+        <button class="auth-tab ${isLogin?'active':''}" data-action="auth-mode" data-mode="login">Log in</button>
+        <button class="auth-tab ${!isLogin?'active':''}" data-action="auth-mode" data-mode="signup">Sign up</button>
+      </div>
+      ${state.authError ? `<div class="auth-error">${esc(state.authError)}</div>` : ""}
+      <div class="field">
+        <label class="label">Email</label>
+        <input class="input" id="auth-email" type="email" placeholder="you@company.com">
+      </div>
+      <div class="field">
+        <label class="label">Password</label>
+        <input class="input" id="auth-password" type="password" placeholder="••••••••">
+      </div>
+      <button class="btn btn-primary" style="width:100%;justify-content:center;padding:11px;" data-action="auth-submit" ${state.authLoading?'disabled':''}>
+        ${state.authLoading ? "Please wait…" : (isLogin ? "Log in" : "Create account")}
+      </button>
+      ${!isLogin ? `<div class="hint" style="margin-top:12px;text-align:center;">Free plan includes ${FREE_LIMIT} investigations, no card required.</div>` : ""}
+    </div>
+  </div>`;
+}
+function bindAuthHandlers(){
+  document.querySelectorAll("[data-action]").forEach(el=>{
+    el.onclick = (e) => handleAction(el.dataset, el, e);
+  });
+  const pw = document.getElementById("auth-password");
+  if(pw) pw.onkeydown = (e) => { if(e.key==="Enter") handleAction({action:"auth-submit"}); };
+}
+async function submitAuth(){
+  const email = document.getElementById("auth-email").value.trim();
+  const password = document.getElementById("auth-password").value;
+  if(!email || !password){ state.authError = "Enter an email and password."; render(); return; }
+  state.authLoading = true; state.authError = ""; render();
+  const fn = state.authMode==="login" ? sb.auth.signInWithPassword({email,password}) : sb.auth.signUp({email,password});
+  const { data, error } = await fn;
+  state.authLoading = false;
+  if(error){ state.authError = error.message; render(); return; }
+  if(state.authMode==="signup" && !data.session){
+    state.authError = "Check your email to confirm your account, then log in.";
+    state.authMode = "login"; render(); return;
+  }
+  state.session = data.session;
+  await loadPlan();
+  await loadRecords();
+  render();
+}
+
+/* ---------- ACCOUNT MENU ---------- */
+function renderAccountMenu(){
+  const mount = document.getElementById("accountMount");
+  if(!mount) return;
+  const planLabels = {free:"Free",starter:"Starter",growth:"Growth",enterprise:"Enterprise"};
+  mount.innerHTML = `
+    <div class="account-menu">
+      <button class="btn btn-ghost" style="font-size:12px;padding:6px 10px;" data-action="account-toggle">
+        <span class="plan-badge">${planLabels[state.plan]||"Free"}</span> ${esc((state.session.user.email||"").split("@")[0])}
+      </button>
+      ${state.accountOpen ? `
+        <div class="account-pop">
+          <div style="font-size:12px;color:var(--text-muted);margin-bottom:8px;word-break:break-all;">${esc(state.session.user.email)}</div>
+          <div style="font-size:11.5px;color:var(--text-dim);margin-bottom:10px;">${state.records.length} investigation${state.records.length!==1?'s':''}${state.plan==='free'?` · ${FREE_LIMIT} free limit`:''}</div>
+          <button class="btn btn-ghost" style="width:100%;justify-content:center;font-size:12px;" data-action="sign-out">Sign out</button>
+        </div>` : ""}
+    </div>`;
+  mount.querySelectorAll("[data-action]").forEach(el=>{ el.onclick = ()=>handleAction(el.dataset); });
+}
+
+/* ---------- PAYWALL ---------- */
+function renderPaywall(){
+  return `
+    <button class="btn-text" data-action="back-to-log" style="margin-bottom:14px;">
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M15 18l-6-6 6-6"/></svg>
+      All investigations
+    </button>
+    <div class="upgrade-card">
+      <div style="font-size:16px;font-weight:600;margin-bottom:8px;">You've used all ${FREE_LIMIT} free investigations</div>
+      <div class="hint" style="margin:0 0 18px;">Upgrade to keep investigating — Starter and Growth plans include unlimited investigations plus multi-site rollout.</div>
+      <a href="pricing.html" class="btn btn-primary" style="text-decoration:none;">See plans</a>
+    </div>`;
 }
 
 /* ---------- LOG ---------- */
+/* ---------- DASHBOARD (repeat issues + AI pattern insight) ---------- */
+function renderDashboard(){
+  const total = state.records.length;
+  const open = state.records.filter(r=>r.status!=='closed' && r.status!=='root-cause-found').length;
+  const closed = state.records.filter(r=>r.status==='root-cause-found' || r.status==='closed').length;
+  const ongoing = state.records.filter(r=>r.condition==='ongoing').length;
+
+  // group by pillar+tier to surface repeat problem areas
+  const groups = {};
+  state.records.forEach(r=>{
+    const key = `${r.pillar}|${r.tier}`;
+    if(!groups[key]) groups[key] = { pillar:r.pillar, tier:r.tier, items:[] };
+    groups[key].items.push(r);
+  });
+  const repeats = Object.values(groups).filter(g=>g.items.length>=2).sort((a,b)=>b.items.length-a.items.length);
+
+  // "needs attention" — overdue actions, unverified evidence, unfinished analysis
+  const today = todayISO();
+  const overdueActions = [];
+  state.records.forEach(r=>{
+    (r.actions||[]).forEach(a=>{ if(a.status==='open' && a.due && a.due<today) overdueActions.push({rec:r, action:a}); });
+  });
+  const awaitingEvidence = state.records.filter(r=> r.candidates && r.candidates.length>0 && r.candidates.every(c=>c.status==='unverified'));
+  const awaitingAnalysis = state.records.filter(r=> r.status==='draft' || r.status==='triaged');
+
+  const statCard = (label,val,color) => `
+    <div class="mock-kpi" style="flex:1;">
+      <div class="l" style="font-size:10px;color:var(--text-dim);text-transform:uppercase;letter-spacing:0.05em;">${label}</div>
+      <div style="font-family:'Space Grotesk';font-size:19px;margin-top:3px;color:${color||'var(--text)'};">${val}</div>
+    </div>`;
+
+  const repeatCards = repeats.map(g=>{
+    const p = PILLARS.find(x=>x.key===g.pillar);
+    return `
+    <div class="card-raised" style="margin-bottom:8px;">
+      <div class="status-row" style="margin-bottom:6px;">
+        <span class="pill" style="background:${p?p.color:'#9FACC0'}22;color:${p?p.color:'#9FACC0'};border:1px solid ${p?p.color:'#9FACC0'}55;">${p?p.label:g.pillar}</span>
+        <span class="pill" style="background:var(--amber-dim);color:var(--amber);border:1px solid #FFB84D55;">Tier ${g.tier}</span>
+        <span style="font-size:11.5px;color:var(--text-dim);">${g.items.length} investigations in this area</span>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:3px;">
+        ${g.items.slice(0,4).map(it=>`<div style="font-size:12.5px;color:var(--text-muted);">• ${esc(it.title)||"Untitled"}</div>`).join("")}
+      </div>
+    </div>`;
+  }).join("");
+
+  const attentionRow = (icon, color, label, items, onClick) => items.length ? `
+    <div class="card-raised" style="margin-bottom:8px;">
+      <div class="status-row" style="margin-bottom:8px;">
+        <span style="color:${color};display:flex;align-items:center;">${icon}</span>
+        <span style="font-size:12.5px;font-weight:600;color:var(--text);">${label}</span>
+        <span class="pill" style="background:${color}22;color:${color};border:1px solid ${color}55;">${items.length}</span>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:4px;">
+        ${items.slice(0,5).map(onClick).join("")}
+      </div>
+    </div>` : "";
+
+  const clockIcon = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg>`;
+  const flaskIcon = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3"><path d="M9 3h6M10 3v6l-5.5 9.5A1 1 0 005.4 20h13.2a1 1 0 00.9-1.5L14 9V3"/></svg>`;
+  const editIcon = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3"><path d="M12 20h9M16.5 3.5a2.1 2.1 0 013 3L7 19l-4 1 1-4z"/></svg>`;
+
+  return `
+    <div class="card" style="margin-bottom:16px;">
+      <div style="display:flex;gap:8px;margin-bottom:18px;flex-wrap:wrap;">
+        ${statCard("Total", total)}
+        ${statCard("Open", open, "#FFB84D")}
+        ${statCard("Closed", closed, "#3EE0A0")}
+        ${statCard("Recurring", ongoing, ongoing>0?"#FF7A85":undefined)}
+      </div>
+
+      <div class="dash-charts" style="display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-bottom:18px;">
+        <div class="card-raised" style="text-align:center;">
+          <div style="font-size:11px;text-transform:uppercase;letter-spacing:0.05em;color:var(--text-dim);margin-bottom:8px;">By pillar</div>
+          <canvas id="chart-pillar" height="140"></canvas>
+        </div>
+        <div class="card-raised" style="text-align:center;">
+          <div style="font-size:11px;text-transform:uppercase;letter-spacing:0.05em;color:var(--text-dim);margin-bottom:8px;">By status</div>
+          <canvas id="chart-status" height="140"></canvas>
+        </div>
+        <div class="card-raised" style="text-align:center;">
+          <div style="font-size:11px;text-transform:uppercase;letter-spacing:0.05em;color:var(--text-dim);margin-bottom:8px;">One-off vs recurring</div>
+          <canvas id="chart-condition" height="140"></canvas>
+        </div>
+      </div>
+
+      ${(overdueActions.length || awaitingEvidence.length || awaitingAnalysis.length) ? `
+        <div style="font-size:11.5px;text-transform:uppercase;letter-spacing:0.06em;color:var(--red);font-weight:700;margin-bottom:10px;display:flex;align-items:center;gap:6px;">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="9"/><path d="M12 8v4M12 16h.01"/></svg>
+          Needs attention
+        </div>
+        ${attentionRow(clockIcon, "#FF7A85", "Overdue actions", overdueActions, o=>`
+          <button class="btn-text" data-action="open" data-id="${o.rec.id}" style="justify-content:flex-start;text-align:left;color:var(--text-muted);">${esc(o.action.title)} <span style="color:var(--text-dim);">— ${esc(o.rec.title)||"Untitled"} (due ${o.action.due})</span></button>`)}
+        ${attentionRow(flaskIcon, "#FFB84D", "Awaiting evidence / verification", awaitingEvidence, r=>`
+          <button class="btn-text" data-action="open" data-id="${r.id}" style="justify-content:flex-start;text-align:left;color:var(--text-muted);">${esc(r.title)||"Untitled"}</button>`)}
+        ${attentionRow(editIcon, "#6FA8FF", "Analysis not started", awaitingAnalysis, r=>`
+          <button class="btn-text" data-action="open" data-id="${r.id}" style="justify-content:flex-start;text-align:left;color:var(--text-muted);">${esc(r.title)||"Untitled"}</button>`)}
+      ` : ""}
+
+      ${repeats.length ? `
+        <div style="font-size:11.5px;text-transform:uppercase;letter-spacing:0.06em;color:var(--amber);font-weight:700;margin-bottom:10px;display:flex;align-items:center;gap:6px;">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 9v4M12 17h.01M10.3 3.9L1.8 18a2 2 0 001.7 3h17a2 2 0 001.7-3L13.7 3.9a2 2 0 00-3.4 0z"/></svg>
+          Recurring problem areas
+        </div>
+        ${repeatCards}
+      ` : ""}
+      <div style="margin-top:12px;">
+        <button class="btn btn-ai" data-action="analyze-patterns" id="patternBtn"><span class="ai-icon">${aiIcon()}</span> ${state.patternInsight?'Re-analyze patterns':'Analyze patterns & suggest next actions'}</button>
+      </div>
+      ${state.patternInsight ? `
+        <div class="card-raised" style="margin-top:12px;border-color:#B393F555;">
+          <div style="display:flex;align-items:center;gap:6px;margin-bottom:8px;">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#B393F5" stroke-width="2.5"><path d="M12 3l1.9 5.8L20 11l-6.1 2.2L12 19l-1.9-5.8L4 11l6.1-2.2z"/></svg>
+            <span style="font-size:11.5px;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;color:#B393F5;">AI pattern analysis</span>
+          </div>
+          <div style="font-size:13px;color:var(--text);line-height:1.6;white-space:pre-wrap;">${esc(state.patternInsight)}</div>
+        </div>
+      ` : ""}
+    </div>`;
+}
+
+let dashCharts = { pillar:null, status:null, condition:null };
+function drawDashboardCharts(){
+  if(typeof Chart === "undefined" || state.records.length<2) return;
+  Object.values(dashCharts).forEach(c=>{ if(c) c.destroy(); });
+
+  const fontColor = "#9FACC0";
+  const baseOpts = {
+    responsive:true,
+    plugins:{ legend:{ position:"bottom", labels:{ color:fontColor, font:{size:10.5}, boxWidth:10, padding:8 } } },
+  };
+
+  const pillarCounts = {};
+  state.records.forEach(r=>{ pillarCounts[r.pillar] = (pillarCounts[r.pillar]||0)+1; });
+  const pillarLabels = Object.keys(pillarCounts).map(k=>PILLARS.find(p=>p.key===k)?.label || k);
+  const pillarColors = Object.keys(pillarCounts).map(k=>PILLARS.find(p=>p.key===k)?.color || "#9FACC0");
+  const elPillar = document.getElementById("chart-pillar");
+  if(elPillar) dashCharts.pillar = new Chart(elPillar, {
+    type:"doughnut",
+    data:{ labels:pillarLabels, datasets:[{ data:Object.values(pillarCounts), backgroundColor:pillarColors, borderWidth:0 }] },
+    options: baseOpts,
+  });
+
+  const statusLabels = {draft:"Draft",triaged:"Triaged","root-cause-found":"Root cause found","actions-open":"Actions open",closed:"Closed"};
+  const statusColors = {draft:"#9FACC0",triaged:"#6FA8FF","root-cause-found":"#B393F5","actions-open":"#FFB84D",closed:"#3EE0A0"};
+  const statusCounts = {};
+  state.records.forEach(r=>{ statusCounts[r.status] = (statusCounts[r.status]||0)+1; });
+  const elStatus = document.getElementById("chart-status");
+  if(elStatus) dashCharts.status = new Chart(elStatus, {
+    type:"doughnut",
+    data:{ labels:Object.keys(statusCounts).map(k=>statusLabels[k]||k), datasets:[{ data:Object.values(statusCounts), backgroundColor:Object.keys(statusCounts).map(k=>statusColors[k]||"#9FACC0"), borderWidth:0 }] },
+    options: baseOpts,
+  });
+
+  const oneOff = state.records.filter(r=>r.condition!=='ongoing').length;
+  const ongoingC = state.records.filter(r=>r.condition==='ongoing').length;
+  const elCond = document.getElementById("chart-condition");
+  if(elCond) dashCharts.condition = new Chart(elCond, {
+    type:"doughnut",
+    data:{ labels:["One-off","Ongoing / recurring"], datasets:[{ data:[oneOff,ongoingC], backgroundColor:["#6FA8FF","#FF7A85"], borderWidth:0 }] },
+    options: baseOpts,
+  });
+}
+
 function renderLog(){
   const n = state.records.length;
   const items = state.records.slice().reverse().map(r=>{
@@ -347,7 +716,9 @@ function renderLog(){
         </button>
       </div>
     </div>
+    ${n>=2 ? renderDashboard() : ""}
     <div style="font-size:12.5px;color:var(--text-dim);margin-bottom:14px;">${n} investigation${n!==1?'s':''}</div>
+    <div style="font-size:11.5px;text-transform:uppercase;letter-spacing:0.06em;color:var(--text-dim);font-weight:700;margin-bottom:8px;">All investigations</div>
     ${n===0 ? `
       <div class="empty-state">
         <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="#39445580" stroke-width="1.5"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M8 9h8M8 13h5"/></svg>
@@ -358,16 +729,17 @@ function renderLog(){
 
 /* ---------- INVESTIGATION SHELL ---------- */
 function renderInvestigation(rec){
-  const steps = ["intake","triage","analyze","rootcause"];
+  const steps = ["intake","triage","analyze","validate","rootcause"];
   const rail = steps.map((s,i)=>`
     <span class="${state.step===s?'active':''}">${s==='rootcause'?'Root cause':s.charAt(0).toUpperCase()+s.slice(1)}</span>
-    ${i<3?'<span class="sep">›</span>':''}`).join("");
+    ${i<4?'<span class="sep">›</span>':''}`).join("");
 
   let body = "";
   if(state.step==="intake") body = renderIntake(rec);
   else if(state.step==="triage") body = renderTriage(rec);
   else if(state.step==="analyze" && rec.method==="5-why") body = renderFiveWhys(rec);
   else if(state.step==="analyze" && rec.method==="fishbone") body = renderFishbone(rec);
+  else if(state.step==="validate") body = renderValidate(rec);
   else if(state.step==="rootcause") body = renderRootCause(rec);
 
   return `
@@ -388,8 +760,25 @@ function renderIntake(rec){
       <input class="input" id="f-title" value="${esc(rec.title)}" placeholder="e.g. Line 3 unplanned stops during afternoon shift">
     </div>
     <div class="field">
-      <label class="label">What happened? Be specific — what, where, when, how big</label>
-      <textarea class="textarea" id="f-desc" rows="4" placeholder="Describe the problem in your own words. The more specific, the better the AI can help.">${esc(rec.description)}</textarea>
+      <label class="label">What happened?</label>
+      <textarea class="textarea" id="f-desc" rows="3" placeholder="Describe the problem in your own words — the more specific, the better the AI can help.">${esc(rec.description)}</textarea>
+    </div>
+    <div class="grid3" style="margin-bottom:16px;">
+      <div>
+        <label class="label">Where</label>
+        <input class="input" id="f-location" value="${esc(rec.location)}" placeholder="Line, area, equipment">
+      </div>
+      <div>
+        <label class="label">When</label>
+        <input class="input" id="f-when" value="${esc(rec.whenOccurred)}" placeholder="e.g. Tue afternoon shift">
+      </div>
+      <div>
+        <label class="label">Condition</label>
+        <select class="select" id="f-condition">
+          <option value="one-off" ${rec.condition==='one-off'?'selected':''}>One-off</option>
+          <option value="ongoing" ${rec.condition==='ongoing'?'selected':''}>Ongoing / recurring</option>
+        </select>
+      </div>
     </div>
     <div class="grid3" style="margin-bottom:16px;">
       <div>
@@ -407,6 +796,17 @@ function renderIntake(rec){
         </select>
       </div>
     </div>
+    <div class="field">
+      <label class="label">Cost impact</label>
+      <select class="select" id="f-cost">
+        <option value="unknown" ${rec.costImpact==='unknown'?'selected':''}>Not estimated yet</option>
+        <option value="none" ${rec.costImpact==='none'?'selected':''}>None</option>
+        <option value="low" ${rec.costImpact==='low'?'selected':''}>Low (minor, absorbed easily)</option>
+        <option value="medium" ${rec.costImpact==='medium'?'selected':''}>Medium (noticeable to the site)</option>
+        <option value="high" ${rec.costImpact==='high'?'selected':''}>High (significant, escalation-worthy)</option>
+      </select>
+    </div>
+    ${renderAttachments(rec)}
     <div style="display:flex;justify-content:flex-end;" id="intakeErrRow">
       <button class="btn btn-primary" data-action="to-triage">
         Triage with AI
@@ -468,7 +868,7 @@ function renderFiveWhys(rec){
     ${rec.whys.length<8?`<button class="btn-text" data-action="add-why" style="margin-bottom:16px;"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12h14"/></svg> Add another why</button>`:""}
     <div class="row-between">
       <button class="btn-text" data-action="to-triage-back"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M15 18l-6-6 6-6"/></svg> Back</button>
-      <button class="btn btn-primary" data-action="to-rootcause" ${!rec.whys[rec.whys.length-1].text.trim()?'disabled':''}>Confirm root cause <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M9 6l6 6-6 6"/></svg></button>
+      <button class="btn btn-primary" data-action="to-validate" ${!rec.whys[rec.whys.length-1].text.trim()?'disabled':''}>Verify this cause <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M9 6l6 6-6 6"/></svg></button>
     </div>
   `;
 }
@@ -505,7 +905,44 @@ function renderFishbone(rec){
     <div class="fb-grid" style="margin-bottom:16px;">${cats}</div>
     <div class="row-between">
       <button class="btn-text" data-action="to-triage-back"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M15 18l-6-6 6-6"/></svg> Back</button>
-      <button class="btn btn-primary" data-action="to-rootcause" ${confirmedCount===0?'disabled':''}>Confirm root cause (${confirmedCount} selected) <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M9 6l6 6-6 6"/></svg></button>
+      <button class="btn btn-primary" data-action="to-validate" ${confirmedCount===0?'disabled':''}>Verify shortlisted causes (${confirmedCount}) <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M9 6l6 6-6 6"/></svg></button>
+    </div>
+  `;
+}
+
+/* ---------- VALIDATE (narrow shortlisted causes before committing) ---------- */
+function renderValidate(rec){
+  const items = rec.candidates.map((c,idx)=>{
+    const statusColors = { unverified:"#9FACC0", verified:"#3EE0A0", "ruled-out":"#FF7A85" };
+    const color = statusColors[c.status] || statusColors.unverified;
+    return `
+    <div class="card" style="border-color:${c.status!=='unverified'?color+'55':'var(--border)'};margin-bottom:10px;">
+      <div class="row-between" style="margin-bottom:8px;">
+        <div style="display:flex;align-items:center;gap:8px;">
+          <span class="pill" style="background:${color}22;color:${color};border:1px solid ${color}55;">${esc(c.source)}</span>
+        </div>
+      </div>
+      <div style="font-size:13.5px;color:var(--text);margin-bottom:8px;line-height:1.5;">${esc(c.text)}</div>
+      <label class="label">Evidence — what actually confirms or rules this out?</label>
+      <textarea class="textarea validate-evidence" data-idx="${idx}" rows="2" placeholder="e.g. data pulled, direct observation, test performed, interview notes…">${esc(c.evidence)}</textarea>
+      <div style="display:flex;align-items:center;gap:8px;margin-top:8px;flex-wrap:wrap;">
+        <button class="btn btn-ai" data-action="suggest-verify" data-idx="${idx}"><span class="ai-icon">${aiIcon()}</span> Suggest how to verify</button>
+        <div style="flex:1;"></div>
+        <button class="btn" data-action="set-cand-status" data-idx="${idx}" data-status="verified" style="font-size:11.5px;padding:5px 10px;background:${c.status==='verified'?'#3EE0A022':'var(--raised)'};color:${c.status==='verified'?'#3EE0A0':'var(--text-muted)'};border:1px solid ${c.status==='verified'?'#3EE0A0':'var(--border-light)'};">Verified</button>
+        <button class="btn" data-action="set-cand-status" data-idx="${idx}" data-status="ruled-out" style="font-size:11.5px;padding:5px 10px;background:${c.status==='ruled-out'?'#FF7A8522':'var(--raised)'};color:${c.status==='ruled-out'?'#FF7A85':'var(--text-muted)'};border:1px solid ${c.status==='ruled-out'?'#FF7A85':'var(--border-light)'};">Ruled out</button>
+      </div>
+    </div>`;
+  }).join("");
+  const verifiedCount = rec.candidates.filter(c=>c.status==='verified').length;
+  return `
+    <div class="card" style="margin-bottom:14px;">
+      <div style="font-size:14px;font-weight:600;margin-bottom:4px;">${esc(rec.title)}</div>
+      <div class="hint" style="margin:6px 0 0;">Before writing the root cause, confirm which shortlisted cause(s) the evidence actually supports. Rule out anything that doesn't hold up — this is what stops a guess turning into your official root cause.</div>
+    </div>
+    ${items || `<div class="hint">No candidates to verify yet.</div>`}
+    <div class="row-between" style="margin-top:6px;">
+      <button class="btn-text" data-action="to-analyze-back"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M15 18l-6-6 6-6"/></svg> Back</button>
+      <button class="btn btn-primary" data-action="to-rootcause" ${verifiedCount===0?'disabled':''}>Write root cause (${verifiedCount} verified) <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M9 6l6 6-6 6"/></svg></button>
     </div>
   `;
 }
@@ -539,16 +976,97 @@ function renderRootCause(rec){
         <button class="btn-icon" data-action="add-action"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12h14"/></svg></button>
       </div>
     </div>
+    ${renderAttachments(rec)}
     <div class="export-row" style="margin-bottom:16px;">
       <button class="btn btn-export" data-action="export-pdf"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M6 2h9l5 5v15H6z"/><path d="M14 2v6h6"/></svg> Export PDF</button>
       <button class="btn btn-export" data-action="export-excel"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M4 4h16v16H4z"/><path d="M4 9h16M9 4v16"/></svg> Export Excel</button>
       <button class="btn btn-export" data-action="email-report"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M3 5h18v14H3z"/><path d="M3 6l9 7 9-7"/></svg> Email report</button>
     </div>
     <div class="row-between">
-      <button class="btn-text" data-action="to-analyze-back"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M15 18l-6-6 6-6"/></svg> Back</button>
+      <button class="btn-text" data-action="to-validate-back"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M15 18l-6-6 6-6"/></svg> Back</button>
       <button class="btn btn-success" data-action="finish" ${!rec.rootCause || !rec.rootCause.trim() ? 'disabled':''}>Save investigation <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M20 6L9 17l-5-5"/></svg></button>
     </div>
   `;
+}
+
+/* ---------- EVIDENCE ATTACHMENTS (photo / video) ---------- */
+function renderAttachments(rec){
+  const tiles = (rec.attachments||[]).map(a=>{
+    const cached = state.signedUrlCache[a.path];
+    const ready = cached && cached !== "loading";
+    const isImage = a.type && a.type.startsWith("image/");
+    const isVideo = a.type && a.type.startsWith("video/");
+    let inner;
+    if(!ready){
+      inner = `<div style="width:100%;height:100%;display:flex;align-items:center;justify-content:center;color:var(--text-dim);"><svg class="spin" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="9" stroke-dasharray="40" stroke-dashoffset="10"/></svg></div>`;
+      fetchSignedUrl(a.path);
+    } else if(isImage){
+      inner = `<a href="${cached}" target="_blank"><img src="${cached}" alt="${esc(a.name)}"></a>`;
+    } else if(isVideo){
+      inner = `<a href="${cached}" target="_blank" style="width:100%;height:100%;display:flex;align-items:center;justify-content:center;color:var(--text-muted);"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="4" width="14" height="16" rx="2"/><path d="M16 9l6-4v14l-6-4"/></svg></a>`;
+    } else {
+      inner = `<a href="${cached}" target="_blank" style="width:100%;height:100%;display:flex;align-items:center;justify-content:center;color:var(--text-muted);"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><path d="M14 2v6h6"/></svg></a>`;
+    }
+    return `
+    <div class="attach-tile">
+      ${inner}
+      <button class="attach-del" data-action="delete-attachment" data-path="${esc(a.path)}"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M18 6L6 18M6 6l12 12"/></svg></button>
+      <div class="attach-label">${esc(a.name)}</div>
+    </div>`;
+  }).join("");
+
+  return `
+    <div class="field">
+      <label class="label">Evidence — photos / videos</label>
+      <div class="attach-grid">
+        ${tiles}
+        <label class="attach-upload-btn">
+          ${state.uploadingAttachment ? `<svg class="spin" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="9" stroke-dasharray="40" stroke-dashoffset="10"/></svg>` :
+          `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>Add`}
+          <input type="file" accept="image/*,video/*" id="attach-input" style="display:none;" ${state.uploadingAttachment?'disabled':''}>
+        </label>
+      </div>
+      <div class="hint" style="margin-top:8px;margin-bottom:0;">Photos or short videos of the issue, up to 20MB each.</div>
+    </div>`;
+}
+
+async function fetchSignedUrl(path){
+  if(state.signedUrlCache[path] === "loading") return;
+  state.signedUrlCache[path] = "loading";
+  const { data, error } = await sb.storage.from("evidence").createSignedUrl(path, 3600);
+  if(!error && data){
+    state.signedUrlCache[path] = data.signedUrl;
+    render();
+  } else {
+    delete state.signedUrlCache[path];
+  }
+}
+
+async function uploadAttachment(rec, file){
+  if(!file) return;
+  if(file.size > 20*1024*1024){
+    alert("File too large — please keep evidence under 20MB.");
+    return;
+  }
+  state.uploadingAttachment = true; render();
+  const path = `${state.session.user.id}/${rec.id}/${Date.now()}-${file.name.replace(/[^\w.\-]/g,"_")}`;
+  const { error } = await sb.storage.from("evidence").upload(path, file, { contentType: file.type });
+  state.uploadingAttachment = false;
+  if(error){
+    alert("Upload failed: " + error.message);
+    render();
+    return;
+  }
+  const next = [...(rec.attachments||[]), { id: uid(), name: file.name, path, type: file.type, size: file.size, uploadedAt: new Date().toISOString() }];
+  updateActive({ attachments: next });
+  render();
+}
+
+async function deleteAttachment(rec, path){
+  await sb.storage.from("evidence").remove([path]);
+  delete state.signedUrlCache[path];
+  updateActive({ attachments: (rec.attachments||[]).filter(a=>a.path!==path) });
+  render();
 }
 
 function aiIcon(){
@@ -567,10 +1085,21 @@ function bindGlobalHandlers(){
 function handleAction(ds, el){
   const rec = getActive();
   switch(ds.action){
+    case "analyze-patterns": analyzePatterns(); break;
+    case "delete-attachment": {
+      if(confirm("Remove this evidence file?")) deleteAttachment(rec, ds.path);
+      break;
+    }
     case "new": {
+      if(state.plan==="free" && state.records.length>=FREE_LIMIT){
+        state.step="paywall"; state.activeId=null; render();
+        return;
+      }
       const r = newRecord();
-      state.records.push(r); persist();
-      state.activeId = r.id; state.step = "intake"; render();
+      state.records.unshift(r);
+      state.activeId = r.id; state.step = "intake";
+      sb.from("investigations").insert(toDbRow(r)).then(()=>{});
+      render();
       break;
     }
     case "open": {
@@ -578,12 +1107,13 @@ function handleAction(ds, el){
       state.activeId = ds.id;
       if(r.status==="draft") state.step="intake";
       else if(r.rootCause) state.step="rootcause";
+      else if(r.candidates && r.candidates.length>0) state.step="validate";
       else if(r.method) state.step="analyze";
       else state.step="triage";
       render();
       break;
     }
-    case "back-to-log": state.activeId=null; render(); break;
+    case "back-to-log": state.activeId=null; state.step="intake"; render(); break;
     case "to-intake": state.step="intake"; render(); break;
     case "to-triage": {
       if(!rec.title.trim() || rec.description.trim().length<15){
@@ -627,6 +1157,34 @@ function handleAction(ds, el){
       break;
     }
     case "to-rootcause": state.step="rootcause"; render(); break;
+    case "to-validate": {
+      // populate candidates the first time we arrive from analyze
+      let candidates = rec.candidates;
+      if(!candidates || candidates.length===0){
+        if(rec.method==="5-why"){
+          const last = rec.whys[rec.whys.length-1];
+          candidates = [{id:uid(), text:last.text, source:"5 Whys — deepest why", evidence:"", status:"unverified"}];
+        }else{
+          candidates = [];
+          CATEGORIES.forEach(c=>{
+            rec.fishbone[c.key].filter(x=>x.confirmed).forEach(x=>{
+              candidates.push({id:uid(), text:x.text, source:c.label, evidence:"", status:"unverified"});
+            });
+          });
+        }
+        updateActive({candidates});
+      }
+      state.step="validate"; render();
+      break;
+    }
+    case "to-validate-back": state.step="validate"; render(); break;
+    case "set-cand-status": {
+      const idx = Number(ds.idx);
+      const next = rec.candidates.map((c,i)=>i===idx?{...c,status:ds.status}:c);
+      updateActive({candidates:next}); render();
+      break;
+    }
+    case "suggest-verify": suggestVerify(rec, Number(ds.idx)); break;
     case "draft-rootcause": draftRootCause(rec); break;
     case "toggle-action": {
       const next = rec.actions.map(a=>a.id===ds.aid?{...a,status:a.status==='open'?'done':'open'}:a);
@@ -652,6 +1210,16 @@ function handleAction(ds, el){
       break;
     }
     case "coach-toggle": state.coachOpen = !state.coachOpen; renderCoach(); break;
+    case "auth-mode": state.authMode = ds.mode; state.authError=""; render(); break;
+    case "auth-submit": submitAuth(); break;
+    case "account-toggle": state.accountOpen = !state.accountOpen; renderAccountMenu(); break;
+    case "sign-out": {
+      sb.auth.signOut().then(()=>{
+        state.session=null; state.records=[]; state.activeId=null; state.accountOpen=false;
+        render();
+      });
+      break;
+    }
     case "coach-send": sendCoachMessage(); break;
     case "export-pdf": exportPDF(rec); break;
     case "export-excel": exportExcelSingle(rec); break;
@@ -690,6 +1258,8 @@ function exportPDF(rec){
     </div>
     <h2>Problem description</h2>
     <p>${esc(rec.description)}</p>
+    <h2>Details</h2>
+    <p>Where: ${esc(rec.location)||"—"} &nbsp;·&nbsp; When: ${esc(rec.whenOccurred)||"—"} &nbsp;·&nbsp; Condition: ${rec.condition==='ongoing'?'Ongoing / recurring':'One-off'} &nbsp;·&nbsp; Cost impact: ${esc(rec.costImpact)}</p>
     <h2>Analysis (${rec.method==='5-why'?'5 Whys':'Fishbone — confirmed causes'})</h2>
     ${evidence.length ? `<p>${evidence.map(esc).join("<br>")}</p>` : `<p>—</p>`}
     <h2>Root cause</h2>
@@ -707,7 +1277,9 @@ function exportExcelSingle(rec){
   const wb = XLSX.utils.book_new();
   const summary = [
     ["Title", rec.title], ["Pillar", p?p.label:rec.pillar], ["Tier", `Tier ${rec.tier} — ${TIER_NAMES[rec.tier]}`],
-    ["Severity", rec.severity], ["Method", rec.method], ["Status", rec.status], ["Logged", rec.createdAt],
+    ["Severity", rec.severity], ["Where", rec.location], ["When", rec.whenOccurred],
+    ["Condition", rec.condition], ["Cost impact", rec.costImpact],
+    ["Method", rec.method], ["Status", rec.status], ["Logged", rec.createdAt],
     ["Description", rec.description], ["Root cause", rec.rootCause],
   ];
   XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(summary), "Summary");
@@ -750,6 +1322,16 @@ function bindStepHandlers(rec){
   if(ti) ti.onchange = () => { rec.tier = Number(ti.value); persist(); };
   const sv = document.getElementById("f-severity");
   if(sv) sv.onchange = () => { rec.severity = sv.value; persist(); };
+  const loc = document.getElementById("f-location");
+  if(loc) loc.oninput = () => { rec.location = loc.value; persist(); };
+  const wh = document.getElementById("f-when");
+  if(wh) wh.oninput = () => { rec.whenOccurred = wh.value; persist(); };
+  const cond = document.getElementById("f-condition");
+  if(cond) cond.onchange = () => { rec.condition = cond.value; persist(); };
+  const cost = document.getElementById("f-cost");
+  if(cost) cost.onchange = () => { rec.costImpact = cost.value; persist(); };
+  const attachInput = document.getElementById("attach-input");
+  if(attachInput) attachInput.onchange = () => { uploadAttachment(rec, attachInput.files[0]); };
   const rc = document.getElementById("f-rootcause");
   if(rc) rc.oninput = () => { rec.rootCause = rc.value; persist(); };
   document.querySelectorAll(".why-input").forEach(ta=>{
@@ -766,16 +1348,40 @@ function bindStepHandlers(rec){
   document.querySelectorAll(".fb-add-input").forEach(inp=>{
     inp.onkeydown = (e) => { if(e.key==="Enter") handleAction({action:"add-cause", cat:inp.dataset.cat}); };
   });
+  document.querySelectorAll(".validate-evidence").forEach(ta=>{
+    ta.oninput = () => { rec.candidates[Number(ta.dataset.idx)].evidence = ta.value; persist(); };
+  });
 }
 
 /* =========================================================
    AI ACTIONS
 ========================================================= */
+async function analyzePatterns(){
+  const btn = document.getElementById("patternBtn");
+  if(btn){
+    btn.innerHTML = `<svg class="spin" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="9" stroke-dasharray="40" stroke-dashoffset="10"/></svg> Thinking…`;
+    btn.disabled = true;
+  }
+  try{
+    const summary = state.records.map(r=>
+      `- [${r.pillar}/Tier ${r.tier}] ${r.title || "Untitled"} (${r.condition}, status: ${r.status})${r.rootCause ? " — Root cause: "+r.rootCause : ""}`
+    ).join("\n");
+    const insight = await askClaude(
+      "You are a lean manufacturing continuous-improvement advisor reviewing a site's full investigation log. Identify genuine recurring patterns across pillar, tier, or root cause themes — not just restating the list. Call out anything that suggests a systemic issue bigger than any single investigation. Then give 2-3 concrete next actions (e.g. escalate to a specific tier, run a broader audit, standardize a fix site-wide). Be concise, plain text, no markdown headers, under 150 words.",
+      `Investigation log:\n${summary}`
+    );
+    state.patternInsight = insight;
+  }catch(e){
+    state.patternInsight = "Couldn't reach the AI just now — try again in a moment.";
+  }
+  render();
+}
+
 async function runTriage(rec){
   try{
     const result = await askClaude(
       "You are a lean manufacturing continuous-improvement expert who triages problems before root cause analysis. Respond ONLY with JSON, no preamble, no markdown fences. Schema: {\"complexity\":\"simple\"|\"complex\",\"rationale\":\"one or two sentences explaining why\",\"suggestedMethod\":\"5-why\"|\"fishbone\"}. Use 5-why for problems with a likely single, linear causal chain. Use fishbone for problems that could stem from multiple contributing factors (people, machine, method, material, measurement, environment) or that are recurring/systemic.",
-      `Problem title: ${rec.title}\nDescription: ${rec.description}\nPillar: ${rec.pillar}\nSeverity: ${rec.severity}`,
+      buildContext(rec),
       true
     );
     updateActive({complexity:result.complexity, triageRationale:result.rationale, method:result.suggestedMethod, status:"triaged"});
@@ -795,7 +1401,7 @@ async function suggestWhy(rec, idx){
     const chain = rec.whys.slice(0,idx).map((w,i)=>`Why ${i+1}: ${w.text}`).join("\n");
     const suggestion = await askClaude(
       "You are facilitating a 5 Whys root cause analysis in a manufacturing plant. Given the problem and the chain of 'why' answers so far, propose the NEXT why answer as a single, specific, plain sentence — the most probable underlying cause at this depth, grounded in typical manufacturing causes (process, equipment, training, standard work, maintenance). Do not add labels or numbering, just the sentence. If the chain already reflects a true systemic root cause (a missing system, standard, or control — not a person or one-off event), instead respond with exactly: ROOT_CAUSE_REACHED.",
-      `Problem: ${rec.title} — ${rec.description}\n\n${chain || "(no whys answered yet)"}`
+      `${buildContext(rec)}\n\n${chain || "(no whys answered yet)"}`
     );
     if(!suggestion.includes("ROOT_CAUSE_REACHED")){
       rec.whys[idx].text = suggestion; persist();
@@ -811,7 +1417,7 @@ async function generateFishbone(rec){
   try{
     const result = await askClaude(
       "You are a lean six sigma facilitator running a fishbone (Ishikawa) analysis for a manufacturing problem, using the 6M categories: man (people), machine, method, material, measurement, environment. Respond ONLY with JSON, no markdown fences, schema: {\"man\":[\"cause1\",\"cause2\"],\"machine\":[...],\"method\":[...],\"material\":[...],\"measurement\":[...],\"environment\":[...]}. Give 2-4 short, specific, plausible candidate causes per category grounded in the problem described. Keep each cause under 12 words.",
-      `Problem: ${rec.title} — ${rec.description}\nPillar: ${rec.pillar}`,
+      buildContext(rec),
       true
     );
     const next = {};
@@ -823,23 +1429,35 @@ async function generateFishbone(rec){
   render();
 }
 
+async function suggestVerify(rec, idx){
+  const btn = document.querySelector(`[data-action="suggest-verify"][data-idx="${idx}"]`);
+  const original = btn.innerHTML;
+  btn.innerHTML = `<svg class="spin" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="9" stroke-dasharray="40" stroke-dashoffset="10"/></svg> Thinking…`;
+  btn.disabled = true;
+  try{
+    const cand = rec.candidates[idx];
+    const suggestion = await askClaude(
+      "You are a lean manufacturing root cause facilitator helping verify whether a shortlisted candidate cause actually holds up before it's accepted as the root cause. Given the problem and the candidate cause, suggest ONE concrete, practical way to verify or rule it out (e.g. what data to pull, what to observe directly, what test to run, who to interview). One or two sentences, specific to a manufacturing plant, no preamble.",
+      `${buildContext(rec)}\n\nCandidate cause (${cand.source}): ${cand.text}`
+    );
+    rec.candidates[idx].evidence = rec.candidates[idx].evidence
+      ? rec.candidates[idx].evidence + "\n\nSuggested check: " + suggestion
+      : "Suggested check: " + suggestion;
+    persist();
+  }catch(e){ /* silent */ }
+  render();
+}
+
 async function draftRootCause(rec){
   const btn = document.getElementById("draftBtn");
   btn.innerHTML = `<svg class="spin" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="9" stroke-dasharray="40" stroke-dashoffset="10"/></svg> Thinking…`;
   btn.disabled = true;
   try{
-    let evidence = "";
-    if(rec.method==="5-why"){
-      evidence = rec.whys.map((w,i)=>`Why ${i+1}: ${w.text}`).join("\n");
-    }else{
-      evidence = CATEGORIES.map(c=>{
-        const confirmed = rec.fishbone[c.key].filter(x=>x.confirmed).map(x=>x.text);
-        return confirmed.length ? `${c.label}: ${confirmed.join("; ")}` : null;
-      }).filter(Boolean).join("\n");
-    }
+    const verified = rec.candidates.filter(c=>c.status==='verified');
+    const evidence = verified.map(c=>`Verified cause (${c.source}): ${c.text}\nEvidence: ${c.evidence || "(none recorded)"}`).join("\n\n");
     const result = await askClaude(
-      "You are a lean manufacturing root cause analysis facilitator. Based on the problem and the analysis evidence provided, write a JSON object only, no markdown fences, schema: {\"rootCause\":\"one tight paragraph stating the systemic root cause, not symptoms\",\"actions\":[\"action1\",\"action2\",\"action3\"]}. Root cause should point to a missing or broken standard, control, or system — never blame an individual. Actions should be specific, containment vs permanent-fix distinguished where relevant, each under 18 words.",
-      `Problem: ${rec.title} — ${rec.description}\n\nAnalysis evidence:\n${evidence}`,
+      "You are a lean manufacturing root cause analysis facilitator. Based on the problem and the VERIFIED candidate causes with their supporting evidence, write a JSON object only, no markdown fences, schema: {\"rootCause\":\"one tight paragraph stating the systemic root cause, not symptoms\",\"actions\":[\"action1\",\"action2\",\"action3\"]}. Only use candidates that were actually verified — do not reintroduce ruled-out causes. Root cause should point to a missing or broken standard, control, or system — never blame an individual. Actions should be specific, containment vs permanent-fix distinguished where relevant, each under 18 words.",
+      `${buildContext(rec)}\n\nVerified evidence:\n${evidence}`,
       true
     );
     updateActive({
@@ -902,7 +1520,7 @@ async function sendCoachMessage(){
   document.getElementById("coachLoading").style.display = "block";
   const rec = getActive();
   const context = rec && rec.title
-    ? `Current investigation: "${rec.title}" — ${rec.description}. Method: ${rec.method||"not yet chosen"}. Root cause so far: ${rec.rootCause||"none yet"}.`
+    ? `Current investigation: "${rec.title}" — ${rec.description} (Where: ${rec.location||"n/a"}, When: ${rec.whenOccurred||"n/a"}, Condition: ${rec.condition}). Method: ${rec.method||"not yet chosen"}. Root cause so far: ${rec.rootCause||"none yet"}.`
     : "No investigation open yet.";
   try{
     const reply = await askClaude(
@@ -919,7 +1537,21 @@ async function sendCoachMessage(){
 /* =========================================================
    INIT
 ========================================================= */
-render();
+(async function init(){
+  const { data } = await sb.auth.getSession();
+  state.session = data.session;
+  if(state.session){
+    await loadPlan();
+    await loadRecords();
+  }
+  render();
+})();
+sb.auth.onAuthStateChange((event, session)=>{
+  if(event === "SIGNED_OUT"){
+    state.session = null; state.records = []; state.activeId = null;
+    render();
+  }
+});
 </script>
 </body>
 </html>
